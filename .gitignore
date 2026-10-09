@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter & R artifacts
+.ipynb_checkpoints/
+.Rhistory
+.RData
+.Ruserdata
+
+# Large datasets and caches
+data/*.csv
+data/*.parquet
+!data/.gitkeep
+
+# Local legacy & course materials
+course_materials/
+defense_briefs/
+revision_sheets/
+reports/
+src/
+SPECIFICATION.md
+
+# Operating System files
+.DS_Store
+Thumbs.db
