@@ -5,7 +5,7 @@ import numpy as np
 
 def create_architectural_treemap(
     df: pd.DataFrame,
-    metric: str = "threat_weight"  # "threat_weight" or "cve_count"
+    metric: str = "threat_weight"
 ) -> go.Figure:
     if len(df) == 0:
         fig = go.Figure()
@@ -19,9 +19,9 @@ def create_architectural_treemap(
         
     tree_df = df.copy()
     
-    # Calculate derived risk metrics for hierarchical aggregation
+    # Expected Risk Formulation: Expected Loss = Probability (EPSS) * Severity (CVSS)
     tree_df["cve_count"] = 1
-    tree_df["threat_weight"] = tree_df["cvss_base"] * (tree_df["epss_score"] + 0.05)
+    tree_df["threat_weight"] = tree_df["cvss_base"] * (tree_df["epss_score"] + 0.02)
     tree_df["is_network_num"] = (tree_df["attack_vector"] == "Network").astype(int)
     
     # Aggregation for hierarchical structure: Layer -> CWE Family -> Vendor
@@ -35,46 +35,47 @@ def create_architectural_treemap(
     
     val_col = "threat_weight" if metric == "threat_weight" else "cve_count"
     
+    # Topic 8: Perceptually uniform sequential ramp (YlOrRd desaturated for large tiles)
     fig = px.treemap(
         grouped,
         path=[px.Constant("Enterprise Attack Surface"), "layer", "cwe_family", "vendor"],
         values=val_col,
         color="network_ratio",
-        color_continuous_scale=["#38bdf8", "#f59e0b", "#ef4444"],
-        range_color=[0.2, 0.9],
+        color_continuous_scale="YlOrRd",
+        range_color=[0.1, 0.9],
         custom_data=["cve_count", "kev_count", "mean_cvss", "network_ratio"]
     )
     
+    # Topic 7: Squarified layout packing to minimize area judgment distortion
     fig.update_traces(
         textinfo="label+value",
+        tiling=dict(packing="squarify"),
         hovertemplate=(
             "<b>%{label}</b><br>"
-            "• Aggregate Risk Weight: %{value:.1f}<br>"
+            "• Aggregate Threat Weight: %{value:.1f}<br>"
             "• Vulnerability Count: %{customdata[0]}<br>"
-            "• CISA KEV Exploits: %{customdata[1]}<br>"
-            "• Avg CVSS: %{customdata[2]:.1f}<br>"
-            "• Network Remotely Exploitable: %{customdata[3]:.1%}"
+            "• Confirmed KEV Exploits: %{customdata[1]}<br>"
+            "• Mean CVSS: %{customdata[2]:.1f}<br>"
+            "• Network Exposure Ratio: %{customdata[3]:.1%}"
             "<extra></extra>"
         ),
-        marker=dict(line=dict(width=1, color="#1e293b"))
+        marker=dict(line=dict(width=1.2, color="#0f172a"))
     )
     
     fig.update_layout(
         title=dict(
-            text="<b>Idiom 2: Architectural Weakness Taxonomy</b> (Hierarchical Space-Filling Treemap)",
-            font=dict(size=15, color="#f8fafc")
+            text="Architectural Weakness Containment Hierarchy (Space-Filling Treemap)",
+            font=dict(size=14, color="#f8fafc")
         ),
         template="plotly_dark",
         paper_bgcolor="#0f172a",
-        plot_bgcolor="#0b1120",
-        margin=dict(l=20, r=20, t=50, b=20),
+        plot_bgcolor="#0f172a",
+        margin=dict(l=10, r=10, t=45, b=10),
         coloraxis_colorbar=dict(
-            title="Remote Network Vector %",
+            title=dict(text="Network Exposure", font=dict(size=11, color="#94a3b8")),
             tickformat=".0%",
-            thickness=14,
-            len=0.75,
-            xanchor="left",
-            x=1.01
+            tickfont=dict(size=9, color="#94a3b8"),
+            len=0.75
         )
     )
     

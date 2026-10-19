@@ -6,7 +6,7 @@ def create_prioritization_bubble_plot(
     df: pd.DataFrame,
     cvss_thresh: float = 7.0,
     epss_thresh: float = 0.30,
-    color_by: str = "threat_status"  # "threat_status" or "cluster"
+    color_by: str = "threat_status"
 ) -> go.Figure:
     fig = go.Figure()
     
@@ -33,22 +33,58 @@ def create_prioritization_bubble_plot(
         
     plot_df["status_label"] = plot_df.apply(get_status, axis=1)
     
-    color_palette = {
-        "Active In-The-Wild (CISA KEV)": "#ef4444",         # Red
-        "High Threat (Imminent Weaponization)": "#f59e0b",  # Amber
-        "Theoretical High (Paper Tiger)": "#38bdf8",        # Light Blue
-        "Dormant / Low Priority": "#64748b"                 # Slate Gray
+    # Calibrated CIE HCL Palette & 3-Tier Discrete Opacity (Topic 8 Compliance)
+    style_spec = {
+        "Dormant / Low Priority": {
+            "color": "#94A3B8",
+            "opacity": 0.20,
+            "line_width": 0,
+            "line_color": "transparent",
+            "zorder": 1
+        },
+        "Theoretical High (Paper Tiger)": {
+            "color": "#3B7DD8",
+            "opacity": 0.25,
+            "line_width": 0,
+            "line_color": "transparent",
+            "zorder": 2
+        },
+        "High Threat (Imminent Weaponization)": {
+            "color": "#E69F00",
+            "opacity": 0.65,
+            "line_width": 0.8,
+            "line_color": "#B45309",
+            "zorder": 3
+        },
+        "Active In-The-Wild (CISA KEV)": {
+            "color": "#D92B2B",
+            "opacity": 0.92,
+            "line_width": 1.2,
+            "line_color": "#FFFFFF",
+            "zorder": 4
+        }
     }
     
-    # Group by category to enable interactive Plotly legend filtering
-    groups = plot_df["status_label"].unique()
-    for grp in ["Active In-The-Wild (CISA KEV)", "High Threat (Imminent Weaponization)", "Theoretical High (Paper Tiger)", "Dormant / Low Priority"]:
-        if grp not in groups:
-            continue
+    # Stevens' Power Law Calibration: Area = A_min + k * (CVSS Impact)^0.7
+    # Ensures 2D mark area scales with human perceptual power law (Topic 8, Slide 27)
+    A_min = 28.27   # Minimum clickable target area (r_min = 3px)
+    k_scale = 167.61
+    plot_df["impact_area"] = A_min + k_scale * np.power(plot_df["cvss_impact"].clip(lower=0.0), 0.7)
+    
+    # Plotly sizeref calibration for maximum bubble diameter D_max = 28px
+    D_max = 28.0
+    max_area = plot_df["impact_area"].max()
+    sizeref_val = (2.0 * max_area) / (D_max ** 2) if max_area > 0 else 1.0
+
+    # Render traces following painter's algorithm: background density first, focal pop-out last
+    ordered_groups = sorted(style_spec.keys(), key=lambda g: style_spec[g]["zorder"])
+    
+    for grp in ordered_groups:
         sub = plot_df[plot_df["status_label"] == grp]
-        
-        # Area sizing follows Stevens' law: scaled by cvss_impact
-        marker_sizes = np.clip(sub["cvss_impact"] * 3.5, 6, 22)
+        if len(sub) == 0:
+            continue
+            
+        cfg = style_spec[grp]
         
         customdata = np.stack((
             sub["cve_id"],
@@ -65,77 +101,70 @@ def create_prioritization_bubble_plot(
             mode="markers",
             name=grp,
             marker=dict(
-                size=marker_sizes,
-                color=color_palette[grp],
-                opacity=0.85 if "Active" in grp or "High" in grp else 0.45,
-                line=dict(width=1, color="#ffffff" if "Active" in grp else "#334155")
+                size=sub["impact_area"],
+                sizemode="area",
+                sizeref=sizeref_val,
+                sizemin=3.0,
+                color=cfg["color"],
+                opacity=cfg["opacity"],
+                line=dict(width=cfg["line_width"], color=cfg["line_color"])
             ),
             customdata=customdata,
             hovertemplate=(
                 "<b>%{customdata[0]}</b> (%{customdata[1]} %{customdata[2]})<br>"
-                "• CVSS Base: %{x:.1f}<br>"
-                "• EPSS Exploit Prob: %{y:.2%}<br>"
-                "• Weakness: %{customdata[3]}<br>"
-                "• Attack Vector: %{customdata[4]} (Privs: %{customdata[5]})"
-                "<extra></extra>"
+                "CVSS Base: %{x:.1f} | EPSS: %{y:.2%}<br>"
+                "Weakness: %{customdata[3]}<br>"
+                "Vector: %{customdata[4]} (Privs: %{customdata[5]})<br>"
+                f"Status: <i>{grp}</i><extra></extra>"
             )
         ))
         
-    # Add operational quadrant threshold lines
+    # Crosshair Triage Threshold Boundaries
     fig.add_vline(
-        x=cvss_thresh, line_dash="dash", line_color="#475569", line_width=1.5,
-        annotation_text=f"CVSS Triage Threshold ({cvss_thresh:.1f})",
-        annotation_position="top left", annotation_font=dict(size=10, color="#94a3b8")
+        x=cvss_thresh, 
+        line=dict(color="#64748b", dash="dash", width=1.5),
+        annotation_text=f"CVSS Cutoff ({cvss_thresh:.1f})",
+        annotation_position="top left",
+        annotation_font=dict(size=10, color="#94a3b8")
     )
     fig.add_hline(
-        y=epss_thresh, line_dash="dash", line_color="#475569", line_width=1.5,
-        annotation_text=f"EPSS Weaponization Cutoff ({epss_thresh:.2f})",
-        annotation_position="bottom right", annotation_font=dict(size=10, color="#94a3b8")
+        y=epss_thresh, 
+        line=dict(color="#64748b", dash="dash", width=1.5),
+        annotation_text=f"EPSS Cutoff ({epss_thresh:.0%})",
+        annotation_position="bottom right",
+        annotation_font=dict(size=10, color="#94a3b8")
     )
     
-    # Quadrant Alert Background Rectangles
-    fig.add_shape(
-        type="rect", xref="x", yref="y",
-        x0=cvss_thresh, x1=10.0, y0=epss_thresh, y1=1.0,
-        fillcolor="rgba(239, 68, 68, 0.08)", line_width=0, layer="below"
-    )
-    fig.add_shape(
-        type="rect", xref="x", yref="y",
-        x0=0.0, x1=cvss_thresh, y0=epss_thresh, y1=1.0,
-        fillcolor="rgba(245, 158, 11, 0.08)", line_width=0, layer="below"
-    )
-    
+    # Locked coordinate frame to preserve spatial constancy (Stevens' law a=1.0)
     fig.update_layout(
         title=dict(
-            text="<b>Idiom 1: Threat Prioritization Quadrant</b> (CVSS vs EPSS Exploit Probability)",
-            font=dict(size=15, color="#f8fafc")
+            text="Threat Prioritization: Theoretical Severity vs Empirical Weaponization",
+            font=dict(size=14, color="#f8fafc")
         ),
         xaxis=dict(
-            title="Theoretical Severity (CVSS v3.1 Base Score)",
-            range=[1.0, 10.2],
+            title="Theoretical Technical Severity (NVD CVSS v3.1 Base Score)",
+            range=[0.0, 10.3],
             gridcolor="#1e293b",
             zerolinecolor="#334155"
         ),
         yaxis=dict(
-            title="Empirical Exploit Likelihood (FIRST.org EPSS 0-100%)",
-            range=[-0.02, 1.05],
-            tickformat=".0%",
+            title="Empirical Exploit Likelihood (FIRST.org EPSS v3 30-Day Probability)",
+            range=[-0.03, 1.05],
             gridcolor="#1e293b",
             zerolinecolor="#334155"
         ),
         template="plotly_dark",
         paper_bgcolor="#0f172a",
-        plot_bgcolor="#0b1120",
+        plot_bgcolor="#0f172a",
         legend=dict(
             orientation="h",
             yanchor="bottom",
             y=1.02,
             xanchor="right",
             x=1,
-            font=dict(size=11, color="#cbd5e1")
+            font=dict(size=10)
         ),
-        margin=dict(l=60, r=30, t=60, b=50),
-        hovermode="closest"
+        margin=dict(l=50, r=30, t=60, b=50)
     )
     
     return fig

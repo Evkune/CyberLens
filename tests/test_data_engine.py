@@ -9,6 +9,7 @@ from cyberlens.data_engine import (
     calculate_kpis
 )
 from cyberlens.ml_clustering import perform_threat_clustering
+from cyberlens.idiom_ridgeline import compute_reflected_kde
 
 @pytest.fixture
 def sample_data():
@@ -41,14 +42,27 @@ def test_quadrant_classification(sample_data):
     assert "risk_quadrant" in classified.columns
     assert classified["risk_quadrant"].nunique() >= 2
 
-def test_threat_clustering(sample_data):
+def test_threat_clustering_and_validation(sample_data):
     clustered, meta = perform_threat_clustering(sample_data.head(500), n_clusters=4)
     assert "threat_cluster" in clustered.columns
     assert len(meta["cluster_names"]) == 4
     assert clustered["threat_cluster"].notnull().all()
+    assert meta["silhouette"] >= 0.0
+    assert any("Cluster A: Critical Weapons" in name for name in meta["cluster_names"].values())
 
 def test_kpi_computation(sample_data):
     kpis = calculate_kpis(sample_data)
     assert kpis["total_count"] == len(sample_data)
     assert kpis["kev_count"] >= 0
     assert 0.0 <= kpis["median_cvss"] <= 10.0
+
+def test_reflected_kde_boundary_correction():
+    # Simulated zero-day lag with spike near t=0
+    sample_days = np.array([0, 1, 1, 2, 3, 5, 14, 30, 45, 60])
+    t_grid = np.linspace(0, 60, 100)
+    density = compute_reflected_kde(sample_days, t_grid)
+    
+    assert len(density) == 100
+    assert (density >= 0.0).all()
+    # Boundary spike at t=0 must be strictly positive and non-zero
+    assert density[0] > 0.0
