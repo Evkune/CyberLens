@@ -56,6 +56,14 @@ app_ui = ui.page_fluid(
                 selected=["Microsoft", "Linux", "Cisco", "Apache", "Fortinet"]
             ),
             ui.tags.hr(style="border-color: #334155; margin: 12px 0;"),
+            ui.h4("Focus + Context (Shneiderman)", style="color: #38bdf8; font-size: 14px; font-weight: 700;"),
+            ui.input_select(
+                "focus_layer",
+                "Isolate Architectural Tier:",
+                choices=["All"] + AVAILABLE_LAYERS,
+                selected="All"
+            ),
+            ui.tags.hr(style="border-color: #334155; margin: 12px 0;"),
             ui.h4("Operational Triage", style="color: #38bdf8; font-size: 14px; font-weight: 700;"),
             ui.input_slider("cvss_cutoff", "CVSS Triage Threshold:", min=4.0, max=9.5, value=7.0, step=0.1),
             ui.input_slider("epss_cutoff", "EPSS Weaponization Cutoff:", min=0.05, max=0.75, value=0.30, step=0.05),
@@ -148,7 +156,13 @@ def server(input, output, session):
         df = filtered_df()
         cvss_t = input.cvss_cutoff()
         epss_t = input.epss_cutoff()
-        return create_prioritization_bubble_plot(df, cvss_thresh=cvss_t, epss_thresh=epss_t)
+        focus = input.focus_layer()
+        return create_prioritization_bubble_plot(
+            df, 
+            cvss_thresh=cvss_t, 
+            epss_thresh=epss_t,
+            focus_layer=None if focus == "All" else focus
+        )
 
     # Idiom 2: Architectural Treemap
     @output

@@ -1,3 +1,4 @@
+from typing import Optional
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
@@ -6,7 +7,8 @@ def create_prioritization_bubble_plot(
     df: pd.DataFrame,
     cvss_thresh: float = 7.0,
     epss_thresh: float = 0.30,
-    color_by: str = "threat_status"
+    color_by: str = "threat_status",
+    focus_layer: Optional[str] = None
 ) -> go.Figure:
     fig = go.Figure()
     
@@ -76,11 +78,41 @@ def create_prioritization_bubble_plot(
     max_area = plot_df["impact_area"].max()
     sizeref_val = (2.0 * max_area) / (D_max ** 2) if max_area > 0 else 1.0
 
-    # Render traces following painter's algorithm: background density first, focal pop-out last
+    # Focus + Context Partitioning (Case Study 2 & Shneiderman Mantra)
+    is_focus_active = bool(focus_layer and focus_layer != "All" and focus_layer in plot_df["layer"].values)
+    
+    if is_focus_active:
+        focus_df = plot_df[plot_df["layer"] == focus_layer]
+        context_df = plot_df[plot_df["layer"] != focus_layer]
+        
+        # Render non-selected context as faint ghosting (alpha = 0.05, neutral slate)
+        if len(context_df) > 0:
+            fig.add_trace(go.Scatter(
+                x=context_df["cvss_base"],
+                y=context_df["epss_score"],
+                mode="markers",
+                name=f"Context ({len(context_df)} other tiers)",
+                marker=dict(
+                    size=context_df["impact_area"],
+                    sizemode="area",
+                    sizeref=sizeref_val,
+                    sizemin=2.0,
+                    color="#CBD5E1",
+                    opacity=0.06,
+                    line=dict(width=0)
+                ),
+                hoverinfo="skip",
+                showlegend=True
+            ))
+        active_render_df = focus_df
+    else:
+        active_render_df = plot_df
+
+    # Render active focal traces: background density first, focal pop-out last
     ordered_groups = sorted(style_spec.keys(), key=lambda g: style_spec[g]["zorder"])
     
     for grp in ordered_groups:
-        sub = plot_df[plot_df["status_label"] == grp]
+        sub = active_render_df[active_render_df["status_label"] == grp]
         if len(sub) == 0:
             continue
             
@@ -99,7 +131,7 @@ def create_prioritization_bubble_plot(
             x=sub["cvss_base"],
             y=sub["epss_score"],
             mode="markers",
-            name=grp,
+            name=grp if not is_focus_active else f"{grp} ({focus_layer})",
             marker=dict(
                 size=sub["impact_area"],
                 sizemode="area",
@@ -136,10 +168,11 @@ def create_prioritization_bubble_plot(
     )
     
     # Locked coordinate frame to preserve spatial constancy (Stevens' law a=1.0)
+    title_suffix = f" — Focus: {focus_layer}" if is_focus_active else ""
     fig.update_layout(
         title=dict(
-            text="Threat Prioritization: Theoretical Severity vs Empirical Weaponization",
-            font=dict(size=14, color="#f8fafc")
+            text=f"Threat Prioritization: Theoretical Severity vs Empirical Weaponization{title_suffix}",
+            font=dict(size=13, color="#f8fafc")
         ),
         xaxis=dict(
             title="Theoretical Technical Severity (NVD CVSS v3.1 Base Score)",
