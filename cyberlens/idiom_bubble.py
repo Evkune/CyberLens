@@ -8,7 +8,8 @@ def create_prioritization_bubble_plot(
     cvss_thresh: float = 7.0,
     epss_thresh: float = 0.30,
     color_by: str = "threat_status",
-    focus_layer: Optional[str] = None
+    focus_layer: Optional[str] = None,
+    show_landmarks: bool = False
 ) -> go.Figure:
     fig = go.Figure()
     
@@ -41,14 +42,14 @@ def create_prioritization_bubble_plot(
             "color": "#94A3B8",
             "opacity": 0.20,
             "line_width": 0,
-            "line_color": "transparent",
+            "line_color": "rgba(0,0,0,0)",
             "zorder": 1
         },
         "Theoretical High (Paper Tiger)": {
             "color": "#3B7DD8",
             "opacity": 0.25,
             "line_width": 0,
-            "line_color": "transparent",
+            "line_color": "rgba(0,0,0,0)",
             "zorder": 2
         },
         "High Threat (Imminent Weaponization)": {
@@ -123,8 +124,11 @@ def create_prioritization_bubble_plot(
             sub["vendor"],
             sub["product"],
             sub["cwe_family"],
+            sub["layer"],
             sub["attack_vector"],
-            sub["privileges_required"]
+            sub["privileges_required"],
+            sub["cvss_impact"],
+            sub["days_to_exploit"]
         ), axis=-1)
         
         fig.add_trace(go.Scatter(
@@ -143,11 +147,15 @@ def create_prioritization_bubble_plot(
             ),
             customdata=customdata,
             hovertemplate=(
-                "<b>%{customdata[0]}</b> (%{customdata[1]} %{customdata[2]})<br>"
-                "CVSS Base: %{x:.1f} | EPSS: %{y:.2%}<br>"
-                "Weakness: %{customdata[3]}<br>"
-                "Vector: %{customdata[4]} (Privs: %{customdata[5]})<br>"
-                f"Status: <i>{grp}</i><extra></extra>"
+                "<b>%{customdata[0]}</b> &nbsp;|&nbsp; <b>%{customdata[1]} %{customdata[2]}</b><br>"
+                "<b>Weakness:</b> %{customdata[3]} &nbsp;|&nbsp; <b>Layer:</b> %{customdata[4]}<br>"
+                "<b>Vector:</b> %{customdata[5]} (Privs: %{customdata[6]})<br>"
+                "<extra>"
+                "<b>CVSS Base:</b> %{x:.1f} (Impact: %{customdata[7]:.1f})<br>"
+                "<b>EPSS (30d):</b> %{y:.1%}<br>"
+                "<b>Days to KEV:</b> %{customdata[8]}<br>"
+                f"<b>Status:</b> {grp}"
+                "</extra>"
             )
         ))
         
@@ -166,6 +174,50 @@ def create_prioritization_bubble_plot(
         annotation_position="bottom right",
         annotation_font=dict(size=10, color="#94a3b8")
     )
+    
+    # Case Study Landmark Pins (Demo Insurance)
+    if show_landmarks and len(plot_df) > 0:
+        apex_candidates = plot_df[plot_df["is_kev"] & (plot_df["cvss_base"] >= 8.5)].sort_values("epss_score", ascending=False)
+        if len(apex_candidates) > 0:
+            apex = apex_candidates.iloc[0]
+            fig.add_annotation(
+                x=float(apex["cvss_base"]),
+                y=float(apex["epss_score"]),
+                text=f"<b>Apex Weapon</b><br>{apex['cve_id']} ({apex['vendor']})<br>CVSS {apex['cvss_base']:.1f} | EPSS {apex['epss_score']:.0%}",
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1,
+                arrowwidth=1.5,
+                arrowcolor="#ef4444",
+                ax=-60,
+                ay=-50,
+                font=dict(size=10, color="#f8fafc"),
+                bgcolor="rgba(15, 23, 42, 0.90)",
+                bordercolor="#ef4444",
+                borderwidth=1.2,
+                borderpad=4
+            )
+            
+        silent_candidates = plot_df[(plot_df["cvss_base"] < cvss_thresh) & (plot_df["epss_score"] >= epss_thresh)].sort_values(["is_kev", "epss_score"], ascending=[False, False])
+        if len(silent_candidates) > 0:
+            silent = silent_candidates.iloc[0]
+            fig.add_annotation(
+                x=float(silent["cvss_base"]),
+                y=float(silent["epss_score"]),
+                text=f"<b>Silent Threat (LPE)</b><br>{silent['cve_id']} ({silent['vendor']})<br>CVSS {silent['cvss_base']:.1f} | EPSS {silent['epss_score']:.0%}",
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1,
+                arrowwidth=1.5,
+                arrowcolor="#f59e0b",
+                ax=60,
+                ay=-50,
+                font=dict(size=10, color="#f8fafc"),
+                bgcolor="rgba(15, 23, 42, 0.90)",
+                bordercolor="#f59e0b",
+                borderwidth=1.2,
+                borderpad=4
+            )
     
     # Locked coordinate frame to preserve spatial constancy (Stevens' law a=1.0)
     title_suffix = f" — Focus: {focus_layer}" if is_focus_active else ""

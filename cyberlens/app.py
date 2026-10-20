@@ -63,6 +63,7 @@ app_ui = ui.page_fluid(
                 choices=["All"] + AVAILABLE_LAYERS,
                 selected="All"
             ),
+            ui.input_switch("show_landmarks", "Show Case Study Landmarks", value=False),
             ui.tags.hr(style="border-color: #334155; margin: 12px 0;"),
             ui.h4("Operational Triage", style="color: #38bdf8; font-size: 14px; font-weight: 700;"),
             ui.input_slider("cvss_cutoff", "CVSS Triage Threshold:", min=4.0, max=9.5, value=7.0, step=0.1),
@@ -78,6 +79,8 @@ app_ui = ui.page_fluid(
             bg="#0f172a"
         ),
         ui.div(
+            # Active Triage State & Workload Compression Banner
+            ui.output_ui("triage_status_banner"),
             # KPI Summary Row
             ui.row(
                 ui.column(3, ui.div(ui.div("Enterprise CVE Scope", class_="kpi-title"), ui.output_ui("kpi_total"), class_="kpi-box")),
@@ -124,6 +127,49 @@ def server(input, output, session):
             df, _ = perform_threat_clustering(df, n_clusters=k)
         return df
 
+    # Dynamic Triage State & Workload Compression Banner
+    @output
+    @render.ui
+    def triage_status_banner():
+        df = filtered_df()
+        total_raw = len(RAW_DATA)
+        total_filtered = len(df)
+        
+        focus = input.focus_layer()
+        vendors = input.selected_vendors()
+        cvss_cutoff = input.cvss_cutoff()
+        epss_cutoff = input.epss_cutoff()
+        
+        compliance_tickets = len(df[df["cvss_base"] >= cvss_cutoff])
+        cyberlens_priority = len(df[df["is_kev"] | (df["epss_score"] >= epss_cutoff)])
+        
+        if compliance_tickets > 0:
+            reduction_pct = max(0.0, (1.0 - (cyberlens_priority / compliance_tickets)) * 100)
+            reduction_str = f"-{reduction_pct:.1f}% SOC Alert Reduction"
+            reduction_color = "#10b981"
+        else:
+            reduction_str = "Balanced Triage"
+            reduction_color = "#38bdf8"
+            
+        scope_desc = f"{len(vendors)} Vendors" if len(vendors) < len(AVAILABLE_VENDORS) else "All Enterprise Assets"
+        layer_desc = f"Tier: {focus}" if focus != "All" else "All Tiers"
+        
+        return ui.div(
+            ui.div(
+                ui.span("Active Scope: ", style="color: #94a3b8; font-weight: 600;"),
+                ui.span(f"{scope_desc} ➔ {layer_desc} ", style="color: #f8fafc; font-weight: 600;"),
+                ui.span(f"({total_filtered:,} / {total_raw:,} CVEs in scope)", style="color: #38bdf8; font-size: 11px; margin-right: 12px;"),
+                ui.span("| ", style="color: #475569; margin: 0 8px;"),
+                ui.span(f"Compliance Baseline (CVSS ≥ {cvss_cutoff:.1f}): ", style="color: #94a3b8;"),
+                ui.span(f"{compliance_tickets:,} tickets", style="color: #f1f5f9; font-weight: 700;"),
+                ui.span(" ➔ ", style="color: #64748b;"),
+                ui.span("CyberLens Priority: ", style="color: #94a3b8;"),
+                ui.span(f"{cyberlens_priority:,} tickets ", style="color: #fbbf24; font-weight: 700;"),
+                ui.span(f"({reduction_str})", style=f"color: {reduction_color}; font-weight: 700; font-size: 12px; background: rgba(16, 185, 129, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.3);")
+            ),
+            style="background: #0f172a; border: 1px solid #1e293b; border-left: 4px solid #38bdf8; border-radius: 6px; padding: 8px 14px; margin-bottom: 14px; font-size: 12px; display: flex; align-items: center; justify-content: space-between;"
+        )
+
     # KPI Outputs
     @output
     @render.ui
@@ -157,11 +203,13 @@ def server(input, output, session):
         cvss_t = input.cvss_cutoff()
         epss_t = input.epss_cutoff()
         focus = input.focus_layer()
+        landmarks = input.show_landmarks()
         return create_prioritization_bubble_plot(
             df, 
             cvss_thresh=cvss_t, 
             epss_thresh=epss_t,
-            focus_layer=None if focus == "All" else focus
+            focus_layer=None if focus == "All" else focus,
+            show_landmarks=landmarks
         )
 
     # Idiom 2: Architectural Treemap

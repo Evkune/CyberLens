@@ -66,3 +66,11 @@ def test_reflected_kde_boundary_correction():
     assert (density >= 0.0).all()
     # Boundary spike at t=0 must be strictly positive and non-zero
     assert density[0] > 0.0
+
+def test_bubble_plot_with_landmarks(sample_data):
+    from cyberlens.idiom_bubble import create_prioritization_bubble_plot
+    fig = create_prioritization_bubble_plot(sample_data.head(200), show_landmarks=True)
+    assert fig is not None
+    assert len(fig.data) > 0
+    # Check that annotations exist when landmarks are requested
+    assert len(fig.layout.annotations) >= 2
