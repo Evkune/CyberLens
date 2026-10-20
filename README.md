@@ -27,27 +27,27 @@ Static database queries (`SELECT * WHERE cvss >= 7.0`) cannot solve this triage 
 
 ```mermaid
 flowchart TD
-    subgraph Data_Sources [Threat Intelligence Feeds]
-        NVD["NIST NVD\n(CVSS v3.1, CWE, Metrics)"]
-        EPSS["FIRST.org EPSS v3\n(30-day Exploit Probabilities)"]
-        KEV["CISA KEV\n(Confirmed Weaponized Exploits)"]
+    subgraph Data_Sources ["Threat Intelligence Feeds"]
+        NVD["NIST NVD<br>(CVSS v3.1, CWE, Metrics)"]
+        EPSS["FIRST.org EPSS v3<br>(30-day Exploit Probabilities)"]
+        KEV["CISA KEV<br>(Confirmed Weaponized Exploits)"]
     end
 
-    subgraph ETL_Pipeline [Normalization & Data Engine]
-        Ingest["ETL Pipeline (cyberlens.etl_pipeline)\nSchema Alignment & Join"]
-        Parquet["Data Store\n(Parquet / CSV Standardized Feeds)"]
-        Engine["Data Engine (cyberlens.data_engine)\nEnterprise Stack Filtering & Triage Quadrants"]
+    subgraph ETL_Pipeline ["Normalization & Data Engine"]
+        Ingest["ETL Pipeline (cyberlens.etl_pipeline)<br>Schema Alignment & Join"]
+        Parquet["Data Store<br>(Parquet / CSV Standardized Feeds)"]
+        Engine["Data Engine (cyberlens.data_engine)<br>Enterprise Stack Filtering & Triage Quadrants"]
     end
 
-    subgraph Analytics_Core [Analytical & Machine Learning Core]
-        KMeans["Unsupervised 4D K-Means\nThreat Archetypes Discovery"]
-        KDE["Gaussian Kernel Density Estimation\nVelocity & Survival Modeling"]
+    subgraph Analytics_Core ["Analytical & Machine Learning Core"]
+        KMeans["Unsupervised 4D K-Means<br>Threat Archetypes Discovery"]
+        KDE["Gaussian Kernel Density Estimation<br>Velocity & Survival Modeling"]
     end
 
-    subgraph Visual_Interface [Interactive Decision Support (Shiny & Plotly)]
-        Idiom1["Idiom 1: Bivariate Risk Bubble Plot\n(CVSS vs EPSS, Stevens' Law Scaled)"]
-        Idiom2["Idiom 2: Hierarchical Weakness Treemap\n(Space-Filling Architecture Layers)"]
-        Idiom3["Idiom 3: Multi-Cohort Ridgeline Plot\n(Continuous Weaponization Velocity)"]
+    subgraph Visual_Interface ["Interactive Decision Support (Shiny & Plotly)"]
+        Idiom1["Idiom 1: Bivariate Risk Bubble Plot<br>(CVSS vs EPSS, Stevens' Law Scaled)"]
+        Idiom2["Idiom 2: Hierarchical Weakness Treemap<br>(Space-Filling Architecture Layers)"]
+        Idiom3["Idiom 3: Multi-Cohort Ridgeline Plot<br>(Continuous Weaponization Velocity)"]
     end
 
     NVD --> Ingest
@@ -110,9 +110,11 @@ CyberLens/
 ├── data/                   # Data directory (tracked with .gitkeep)
 │   └── .gitkeep
 ├── docs/                   # Methodological documentation
-│   ├── METHODOLOGY.md      # Detailed Munzner framework & metric formulation
+│   ├── FINAL_RESEARCH_REPORT.md      # Comprehensive Munzner 4-level research report
+│   ├── TECHNICAL_NOTES.md            # Statistical proofs & mathematical formulations
+│   ├── METHODOLOGY.md                # Methodological foundations & metric formulations
 │   ├── PROJECT_PROPOSAL_CYBERLENS.md # Formal proposal document
-│   └── PROJECT_PROPOSAL_CYBERLENS.pdf # Approved 2-page proposal PDF
+│   └── PROJECT_PROPOSAL_CYBERLENS.pdf # Approved proposal PDF
 ├── tests/                  # Automated test suite
 │   ├── __init__.py
 │   └── test_data_engine.py # Unit tests for data engine, schema & clustering
@@ -172,8 +174,9 @@ Open `http://127.0.0.1:8000` in your browser.
 
 ## 7. Authors & Academic Credits
 
-* **Evan Gendrot** — *Cybersecurity Engineering Student* ([INSA Rennes](https://www.insa-rennes.fr/) / Erasmus Exchange at [ETSI de Ingenieros Informáticos, UPM](https://www.fi.upm.es/))  
+* **Evan Gendrot** — *Lead Software Architect & Cyber Threat Intelligence Lead* ([INSA Rennes](https://www.insa-rennes.fr/) / Erasmus Exchange at [ETSI de Ingenieros Informáticos, UPM](https://www.fi.upm.es/))  
   *GitHub:* [@Evkune](https://github.com/Evkune)
+* **Minerva Nayeli Rosas Sanchez** — *Process Integration & Enterprise Systems Reporting Lead* ([ETSI de Ingenieros Informáticos, UPM](https://www.fi.upm.es/))
 * **Academic Supervisor:** Prof. Pablo Toharia Rabasco — *Department of Computer Architecture and Technology, UPM*
 
 ---
