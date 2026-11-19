@@ -1,0 +1,29 @@
+{
+  "source_mode": "live_feeds",
+  "generated_at_utc": "2026-11-19T14:47:15.275440+00:00",
+  "cisa_kev_catalog_version": "2026.11.18",
+  "cisa_kev_total_catalog": 1786,
+  "epss_date_current": "2026-11-19",
+  "epss_date_baseline_30d": "2026-10-20",
+  "nvd_windows_fetched": 8,
+  "kev_records_in_dataset": 521,
+  "ransomware_kev_records": 114,
+  "epss_surge_records": 27,
+  "total_records": 3092,
+  "kev_retained_initial": 521,
+  "vendors": [
+    "Apache",
+    "Apple",
+    "Atlassian",
+    "Cisco",
+    "Fortinet",
+    "Ivanti",
+    "Linux",
+    "Microsoft",
+    "Nginx",
+    "Oracle",
+    "Palo Alto Networks",
+    "PostgreSQL",
+    "VMware"
+  ]
+}

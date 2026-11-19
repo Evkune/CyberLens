@@ -1,0 +1,50 @@
+from cyberlens.viz.idiom_bubble import create_prioritization_bubble_plot
+from cyberlens.viz.idiom_ridgeline import compute_reflected_kde, create_velocity_ridgeline_plot
+from cyberlens.viz.idiom_treemap import (
+    create_architectural_treemap,
+    extract_treemap_click_filter,
+    resolve_treemap_metric,
+)
+from cyberlens.viz.theme import (
+    ACCENT_CYAN,
+    ACCENT_PRIMARY,
+    BG_DARK,
+    BG_ELEVATED,
+    BG_PAGE,
+    BG_SIDEBAR,
+    CLUSTER_PALETTE,
+    RIDGELINE_COHORT_PALETTE,
+    SLA_TIER_COLORS,
+    SLA_TIER_STYLES,
+    TREEMAP_SEQUENTIAL_SCALE,
+    VELOCITY_DIVERGING_SCALE,
+    apply_soc_dark_layout,
+    apply_swiss_light_layout,
+    hex_to_rgba,
+    maybe_figure_widget,
+)
+
+__all__ = [
+    "ACCENT_CYAN",
+    "ACCENT_PRIMARY",
+    "BG_DARK",
+    "BG_ELEVATED",
+    "BG_PAGE",
+    "BG_SIDEBAR",
+    "CLUSTER_PALETTE",
+    "RIDGELINE_COHORT_PALETTE",
+    "SLA_TIER_COLORS",
+    "SLA_TIER_STYLES",
+    "TREEMAP_SEQUENTIAL_SCALE",
+    "VELOCITY_DIVERGING_SCALE",
+    "apply_soc_dark_layout",
+    "apply_swiss_light_layout",
+    "compute_reflected_kde",
+    "create_architectural_treemap",
+    "create_prioritization_bubble_plot",
+    "create_velocity_ridgeline_plot",
+    "extract_treemap_click_filter",
+    "hex_to_rgba",
+    "maybe_figure_widget",
+    "resolve_treemap_metric",
+]

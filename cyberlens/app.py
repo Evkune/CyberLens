@@ -1,232 +1,405 @@
-import os
+from __future__ import annotations
+
+from functools import lru_cache
+from typing import Dict, List, Optional, Tuple
+
 import pandas as pd
-from shiny import App, render, ui, reactive
+import plotly.graph_objects as go
+from shiny import App, Inputs, Outputs, Session, reactive, ui
 from shinywidgets import output_widget, render_plotly
 
-from cyberlens.data_engine import (
-    load_dataset,
-    filter_by_enterprise_stack,
-    filter_by_layers,
-    classify_risk_quadrants,
-    calculate_kpis
+from cyberlens.config import LAYER_ORDER
+from cyberlens.domain.clustering import ClusteringResult, perform_threat_clustering
+from cyberlens.domain.metrics import TriageMetrics, calculate_triage_metrics
+from cyberlens.domain.prioritization import enrich_prioritization, filter_by_scope
+from cyberlens.ingestion.loader import load_dataset, load_dataset_metadata
+from cyberlens.ui.mod_kpi_header import (
+    create_cross_filter_bus,
+    kpi_header_server,
+    kpi_header_ui,
 )
-from cyberlens.ml_clustering import perform_threat_clustering
-from cyberlens.idiom_bubble import create_prioritization_bubble_plot
-from cyberlens.idiom_treemap import create_architectural_treemap
-from cyberlens.idiom_ridgeline import create_velocity_ridgeline_plot
+from cyberlens.ui.mod_sidebar import sidebar_server, sidebar_ui
+from cyberlens.ui.mod_triage_queue import triage_queue_server, triage_queue_ui
+from cyberlens.ui.styles import get_soc_styles
+from cyberlens.viz.idiom_bubble import create_prioritization_bubble_plot
+from cyberlens.viz.idiom_ridgeline import create_velocity_ridgeline_plot
+from cyberlens.viz.idiom_treemap import (
+    create_architectural_treemap,
+    extract_treemap_click_filter,
+)
 
-# Ingest and cache unified CVE dataset
-RAW_DATA = load_dataset()
-AVAILABLE_VENDORS = sorted(RAW_DATA["vendor"].unique().tolist())
-AVAILABLE_LAYERS = sorted(RAW_DATA["layer"].unique().tolist())
 
-app_ui = ui.page_fluid(
-    ui.tags.head(
-        ui.tags.style("""
-            body { background-color: #0b1120; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-            .card { background-color: #1e293b; border: 1px solid #334155; border-radius: 10px; margin-bottom: 16px; padding: 14px; }
-            .kpi-box { text-align: center; padding: 10px; border-radius: 8px; background-color: #0f172a; border: 1px solid #1e293b; }
-            .kpi-title { font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: 600; letter-spacing: 0.5px; }
-            .kpi-val { font-size: 24px; font-weight: 700; margin-top: 4px; }
-            .sidebar-card { background-color: #111827; border: 1px solid #374151; border-radius: 10px; padding: 14px; }
-        """)
-    ),
-    ui.panel_title(
-        ui.div(
-            ui.div(
-                ui.h2("CyberLens: Vulnerability Threat Prioritization", style="margin-bottom: 2px; color: #38bdf8; font-weight: 700;"),
-                ui.p("Threat-Informed Visual Analytics for Enterprise Attack Surface Management (Munzner Framework)", style="color: #94a3b8; font-size: 13px; margin: 0;"),
-            ),
-            ui.div(
-                ui.span("Master Innovación Digital — UPM", class_="badge", style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid #0284c7; padding: 4px 10px; border-radius: 6px; font-size: 12px; margin-right: 8px;"),
-                ui.span("Evan Gendrot (INSA)", class_="badge", style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid #059669; padding: 4px 10px; border-radius: 6px; font-size: 12px;"),
-                style="margin-top: 6px;"
-            ),
-            style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 12px; margin-bottom: 14px;"
-        )
-    ),
-    ui.layout_sidebar(
-        ui.sidebar(
-            ui.h4("Enterprise Asset Scope", style="color: #38bdf8; font-size: 14px; font-weight: 700;"),
-            ui.p("Filter vulnerabilities threatening your specific software inventory:", style="font-size: 11px; color: #94a3b8;"),
-            ui.input_checkbox_group(
-                "selected_vendors",
-                "Software Vendors:",
-                choices={v: v for v in AVAILABLE_VENDORS},
-                selected=["Microsoft", "Linux", "Cisco", "Apache", "Fortinet"]
-            ),
-            ui.tags.hr(style="border-color: #334155; margin: 12px 0;"),
-            ui.h4("Focus + Context (Shneiderman)", style="color: #38bdf8; font-size: 14px; font-weight: 700;"),
-            ui.input_select(
-                "focus_layer",
-                "Isolate Architectural Tier:",
-                choices=["All"] + AVAILABLE_LAYERS,
-                selected="All"
-            ),
-            ui.input_switch("show_landmarks", "Show Case Study Landmarks", value=False),
-            ui.tags.hr(style="border-color: #334155; margin: 12px 0;"),
-            ui.h4("Operational Triage", style="color: #38bdf8; font-size: 14px; font-weight: 700;"),
-            ui.input_slider("cvss_cutoff", "CVSS Triage Threshold:", min=4.0, max=9.5, value=7.0, step=0.1),
-            ui.input_slider("epss_cutoff", "EPSS Weaponization Cutoff:", min=0.05, max=0.75, value=0.30, step=0.05),
-            ui.tags.hr(style="border-color: #334155; margin: 12px 0;"),
-            ui.h4("Threat Clustering (K-Means)", style="color: #38bdf8; font-size: 14px; font-weight: 700;"),
-            ui.input_switch("enable_ml", "Enable K-Means Clustering", value=False),
-            ui.panel_conditional(
-                "input.enable_ml",
-                ui.input_slider("k_clusters", "Number of Threat Archetypes (K):", min=3, max=6, value=4, step=1)
-            ),
-            width=280,
-            bg="#0f172a"
-        ),
-        ui.div(
-            # Active Triage State & Workload Compression Banner
-            ui.output_ui("triage_status_banner"),
-            # KPI Summary Row
-            ui.row(
-                ui.column(3, ui.div(ui.div("Enterprise CVE Scope", class_="kpi-title"), ui.output_ui("kpi_total"), class_="kpi-box")),
-                ui.column(3, ui.div(ui.div("Active In-The-Wild (KEV)", class_="kpi-title"), ui.output_ui("kpi_kev"), class_="kpi-box")),
-                ui.column(3, ui.div(ui.div("Imminent Weaponization", class_="kpi-title"), ui.output_ui("kpi_epss"), class_="kpi-box")),
-                ui.column(3, ui.div(ui.div("Median Risk Profile", class_="kpi-title"), ui.output_ui("kpi_median"), class_="kpi-box")),
-                style="margin-bottom: 14px;"
-            ),
-            # Top Visualization Row: Idiom 1 (Scatter) & Idiom 2 (Treemap)
-            ui.row(
-                ui.column(6, ui.div(output_widget("plot_bubble", height="460px"), class_="card")),
-                ui.column(6, ui.div(output_widget("plot_treemap", height="460px"), class_="card"))
-            ),
-            # Bottom Visualization Row: Idiom 3 (Ridgeline Velocity)
-            ui.row(
-                ui.column(12, ui.div(output_widget("plot_ridgeline", height="340px"), class_="card"))
-            ),
-            # Methodology Footer Accordion
-            ui.accordion(
-                ui.accordion_panel(
-                    "Methodological Rationale (Tamara Munzner Framework Compliance)",
-                    ui.markdown("""
-                    - **Domain & Persona:** Enterprise CISO & Lead Vulnerability Analyst managing heterogeneous infrastructure.
-                    - **Task 1 (Bubble Plot):** *{Identify, Outliers & Correlation}* between theoretical severity (CVSS) and empirical weaponization (EPSS). Positions X and Y dominate the mental model (Rank #1 channel per Stevens' Law). Mark area quadratically scales with CVSS Impact.
-                    - **Task 2 (Treemap):** *{Compare, Summarize, Structural Weakness Hierarchy}* across architectural layers (OS, Web, Network). Replaces redundant scatter plots with space-filling layout (Tables slide 64).
-                    - **Task 3 (Ridgeline):** *{Discover, Compare, Continuous Weaponization Distributions}* across vendor cohorts (Tables slide 32). Completely rejects simplistic min/max SQL lookups in favor of continuous Kernel Density Estimation (KDE).
-                    - **Interaction:** Global enterprise asset inventory filter, dynamic operational threshold crosshairs, and K-Means threat archetypes discovery.
-                    """)
-                ),
-                id="acc_methodology"
-            )
-        )
+@lru_cache(maxsize=32)
+def _cached_clustering(vendors_key: Tuple[str, ...], k_clusters: int) -> ClusteringResult:
+    base = load_dataset()
+    scoped = filter_by_scope(base, vendors=vendors_key) if vendors_key else base.iloc[0:0].copy()
+    return perform_threat_clustering(scoped, n_clusters=k_clusters)
+
+
+def _attach_bubble_callbacks(widget: object, bus: object) -> None:
+    traces = getattr(widget, "data", ())
+    for trace in traces:
+        customdata = getattr(trace, "customdata", None)
+        if customdata is None:
+            continue
+
+        def _on_select(t: object, points: object, selector: object) -> None:
+            inds = getattr(points, "point_inds", None)
+            cdata = getattr(t, "customdata", None)
+            if inds and cdata is not None:
+                cves = tuple(
+                    str(cdata[i][0]) for i in inds if 0 <= i < len(cdata)
+                )
+                if cves:
+                    bus.brushed_cves.set(cves)
+
+        def _on_click(t: object, points: object, state: object) -> None:
+            inds = getattr(points, "point_inds", None)
+            cdata = getattr(t, "customdata", None)
+            if inds and cdata is not None:
+                idx = inds[0]
+                if 0 <= idx < len(cdata):
+                    cve_id = str(cdata[idx][0])
+                    bus.inspected_cve.set(cve_id)
+
+        try:
+            if hasattr(trace, "on_selection"):
+                trace.on_selection(_on_select)
+            if hasattr(trace, "on_click"):
+                trace.on_click(_on_click)
+        except Exception:
+            pass
+
+
+def _attach_treemap_callbacks(widget: go.FigureWidget, bus: object) -> None:
+    if not widget.data:
+        return
+    trace = widget.data[0]
+
+    def _handle_click(t: object, points: object, state: object) -> None:
+        inds = getattr(points, "point_inds", None)
+        if inds:
+            idx = inds[0]
+            trace_ids = getattr(t, "ids", None)
+            clicked_id = trace_ids[idx] if trace_ids is not None and idx < len(trace_ids) else None
+            selection = extract_treemap_click_filter(clicked_id)
+            bus.layer.set(selection.get("layer"))
+            bus.cwe_family.set(selection.get("cwe_family"))
+            bus.vendor.set(selection.get("vendor"))
+
+    try:
+        if hasattr(trace, "on_click"):
+            trace.on_click(_handle_click)
+    except Exception:
+        pass
+
+
+def _sync_figure_widget(widget: go.FigureWidget, fig: go.Figure) -> None:
+    """Updates an existing FigureWidget in-place to avoid anywidget teardown/remount races."""
+    with widget.batch_update():
+        widget.data = []
+        if fig.data:
+            widget.add_traces(list(fig.data))
+        widget.layout = fig.layout
+
+
+def _attach_ridgeline_callbacks(widget: object, bus: object) -> None:
+    traces = getattr(widget, "data", ())
+    for trace in traces:
+        meta = getattr(trace, "meta", None)
+        if not isinstance(meta, dict) or "vendor" not in meta:
+            continue
+
+        def _on_ridge_click(t: object, points: object, state: object) -> None:
+            inds = getattr(points, "point_inds", None)
+            t_meta = getattr(t, "meta", None)
+            if inds and isinstance(t_meta, dict) and "vendor" in t_meta:
+                clicked_vendor = str(t_meta["vendor"])
+                current = bus.vendor.get()
+                bus.vendor.set(None if current == clicked_vendor else clicked_vendor)
+
+        try:
+            if hasattr(trace, "on_click"):
+                trace.on_click(_on_ridge_click)
+        except Exception:
+            pass
+
+
+def create_app() -> App:
+    dataset = load_dataset()
+    meta = load_dataset_metadata()
+    available_vendors: List[str] = sorted(dataset["vendor"].astype(str).unique().tolist())
+    present_layers = set(dataset["layer"].astype(str).unique().tolist())
+    available_layers: List[str] = [l for l in LAYER_ORDER if l in present_layers] + sorted(
+        present_layers - set(LAYER_ORDER)
     )
-)
+    total_raw_records = len(dataset)
+    snapshot_date = str(
+        meta.get("epss_date_current")
+        or str(meta.get("generated_at_utc", ""))[:10]
+        or "N/A"
+    )
+    source_badge_text = (
+        f"Snapshot: {total_raw_records:,} CVEs · {int(dataset['is_kev'].sum()):,} CISA KEVs"
+    )
 
-def server(input, output, session):
-    
-    @reactive.calc
-    def filtered_df():
-        vendors = input.selected_vendors()
-        df = filter_by_enterprise_stack(RAW_DATA, vendors)
-        if input.enable_ml():
-            k = input.k_clusters()
-            df, _ = perform_threat_clustering(df, n_clusters=k)
-        return df
-
-    # Dynamic Triage State & Workload Compression Banner
-    @output
-    @render.ui
-    def triage_status_banner():
-        df = filtered_df()
-        total_raw = len(RAW_DATA)
-        total_filtered = len(df)
-        
-        focus = input.focus_layer()
-        vendors = input.selected_vendors()
-        cvss_cutoff = input.cvss_cutoff()
-        epss_cutoff = input.epss_cutoff()
-        
-        compliance_tickets = len(df[df["cvss_base"] >= cvss_cutoff])
-        cyberlens_priority = len(df[df["is_kev"] | (df["epss_score"] >= epss_cutoff)])
-        
-        if compliance_tickets > 0:
-            reduction_pct = max(0.0, (1.0 - (cyberlens_priority / compliance_tickets)) * 100)
-            reduction_str = f"-{reduction_pct:.1f}% SOC Alert Reduction"
-            reduction_color = "#10b981"
-        else:
-            reduction_str = "Balanced Triage"
-            reduction_color = "#38bdf8"
-            
-        scope_desc = f"{len(vendors)} Vendors" if len(vendors) < len(AVAILABLE_VENDORS) else "All Enterprise Assets"
-        layer_desc = f"Tier: {focus}" if focus != "All" else "All Tiers"
-        
-        return ui.div(
+    app_ui = ui.page_fluid(
+        get_soc_styles(),
+        ui.panel_title(
             ui.div(
-                ui.span("Active Scope: ", style="color: #94a3b8; font-weight: 600;"),
-                ui.span(f"{scope_desc} ➔ {layer_desc} ", style="color: #f8fafc; font-weight: 600;"),
-                ui.span(f"({total_filtered:,} / {total_raw:,} CVEs in scope)", style="color: #38bdf8; font-size: 11px; margin-right: 12px;"),
-                ui.span("| ", style="color: #475569; margin: 0 8px;"),
-                ui.span(f"Compliance Baseline (CVSS ≥ {cvss_cutoff:.1f}): ", style="color: #94a3b8;"),
-                ui.span(f"{compliance_tickets:,} tickets", style="color: #f1f5f9; font-weight: 700;"),
-                ui.span(" ➔ ", style="color: #64748b;"),
-                ui.span("CyberLens Priority: ", style="color: #94a3b8;"),
-                ui.span(f"{cyberlens_priority:,} tickets ", style="color: #fbbf24; font-weight: 700;"),
-                ui.span(f"({reduction_str})", style=f"color: {reduction_color}; font-weight: 700; font-size: 12px; background: rgba(16, 185, 129, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.3);")
+                ui.div(
+                    ui.h2("CyberLens", class_="editorial-title"),
+                    ui.p(
+                        "Vulnerability Triage & Risk-Based Prioritization",
+                        class_="editorial-subtitle",
+                    ),
+                ),
+                ui.div(
+                    ui.span(source_badge_text, class_="snapshot-pill"),
+                ),
+                class_="editorial-header",
+            )
+        ),
+        ui.layout_sidebar(
+            sidebar_ui("sidebar", available_vendors=available_vendors, available_layers=available_layers),
+            ui.div(
+                kpi_header_ui("kpi_header"),
+                ui.div(
+                    ui.div(
+                        ui.div(
+                            ui.div(
+                                ui.span("Threat Prioritization: Severity vs Weaponization", class_="card-header-title"),
+                                ui.span("Lasso or click bubbles", class_="card-header-hint"),
+                                class_="card-header-bar",
+                            ),
+                            output_widget("plot_bubble", height="430px"),
+                            class_="soc-section",
+                        ),
+                        class_="col-12 col-lg-6 editorial-col-left",
+                    ),
+                    ui.div(
+                        ui.div(
+                            ui.div(
+                                ui.span("Attack Surface Hierarchy (Squarified Treemap)", class_="card-header-title"),
+                                ui.span("Click tiles to cross-filter", class_="card-header-hint"),
+                                class_="card-header-bar",
+                            ),
+                            output_widget("plot_treemap", height="430px"),
+                            class_="soc-section",
+                        ),
+                        class_="col-12 col-lg-6 editorial-col-right",
+                    ),
+                    class_="row g-0 editorial-two-col",
+                ),
+                ui.div(
+                    output_widget("plot_ridgeline", height="340px"),
+                    class_="soc-section soc-section-bordered",
+                ),
+                triage_queue_ui("triage_queue"),
+                ui.div(
+                    ui.accordion(
+                        ui.accordion_panel(
+                            "Methodology & Scoring Definitions",
+                            ui.markdown(
+                                """
+                                - **Prioritization Scatter (`go.Scattergl`):** Compares NVD CVSS v3.1 base severity against FIRST EPSS v3 30-day exploitation probability and CISA KEV status. Marker area scales with CVSS Impact (`a = 0.7`, `D_max = 28 px`); diamonds mark ransomware-linked KEVs and triangles mark 30-day EPSS velocity surges.
+                                - **Architectural Treemap:** Aggregates vulnerabilities across `Layer -> CWE Family -> Vendor`, sized by expected risk (`sum(CVSS * P_eff)`), actionable queue count, or confirmed KEV count, and shaded by network exposure ratio.
+                                - **Exploitation Velocity Ridgeline:** Estimates disclosure-to-KEV lag density on `[0, +inf)` using boundary-reflected Gaussian KDE, ordered by ascending cohort median (`P50`) with `24h` (`P0`) and `14d` SLA reference thresholds.
+                                - **5D Logit K-Means:** Optional K-Means++ clustering (`K in [3, 6]`) over standardized CVSS, logit-EPSS, EPSS velocity, impact, and exposure features; updates only the scatter overlay and cluster diagnostics.
+                                """
+                            ),
+                        ),
+                        id="acc_methodology",
+                        open=False,
+                    ),
+                    style="margin-top: 14px;",
+                ),
+                ui.tags.footer(
+                    ui.span("CyberLens — Evan Gendrot & Minerva Nayeli Rosas Sanchez"),
+                    ui.span(f"Snapshot: {snapshot_date}", class_="mono-num"),
+                    class_="editorial-footer",
+                ),
             ),
-            style="background: #0f172a; border: 1px solid #1e293b; border-left: 4px solid #38bdf8; border-radius: 6px; padding: 8px 14px; margin-bottom: 14px; font-size: 12px; display: flex; align-items: center; justify-content: space-between;"
+        ),
+    )
+
+    def server(input: Inputs, output: Outputs, session: Session) -> None:
+        base_df = load_dataset()
+        bus = create_cross_filter_bus()
+
+        # Node 1: Inventory Scope (depends ONLY on selected vendors)
+        @reactive.calc
+        def scoped_df() -> pd.DataFrame:
+            vendors = sidebar_state.selected_vendors()
+            return filter_by_scope(base_df, vendors=vendors)
+
+        # Node 2: 5D Logit K-Means Clustering (isolated from sliders, Treemap, Ridgeline, and KPIs)
+        @reactive.calc
+        def ml_result() -> Optional[ClusteringResult]:
+            vendors_key = tuple(sorted(sidebar_state.selected_vendors()))
+            k_val = sidebar_state.k_clusters()
+            return _cached_clustering(vendors_key, k_val)
+
+        sidebar_state = sidebar_server(
+            "sidebar",
+            available_vendors=available_vendors,
+            ml_result_calc=ml_result,
         )
 
-    # KPI Outputs
-    @output
-    @render.ui
-    def kpi_total():
-        kpis = calculate_kpis(filtered_df())
-        return ui.span(f"{kpis['total_count']:,}", style="color: #38bdf8;", class_="kpi-val")
+        # Node 3: Vectorized RBVM Prioritization & Preset Filtering (isolated from ML!)
+        @reactive.calc
+        def triaged_df() -> pd.DataFrame:
+            df = scoped_df()
+            cvss_t = sidebar_state.cvss_cutoff()
+            epss_t = sidebar_state.epss_cutoff()
+            enriched = enrich_prioritization(df, cvss_cutoff=cvss_t, epss_cutoff=epss_t)
+            preset = sidebar_state.cti_preset()
+            if preset != "all":
+                enriched = filter_by_scope(enriched, preset=preset)
+            return enriched
 
-    @output
-    @render.ui
-    def kpi_kev():
-        kpis = calculate_kpis(filtered_df())
-        return ui.span(f"{kpis['kev_count']:,}", style="color: #ef4444;", class_="kpi-val")
+        # Node 4: Cross-Filtered Active Slice for KPIs & 24h Patch Queue (isolated from ML!)
+        @reactive.calc
+        def focused_df() -> pd.DataFrame:
+            df = triaged_df()
+            if len(df) == 0:
+                return df
 
-    @output
-    @render.ui
-    def kpi_epss():
-        kpis = calculate_kpis(filtered_df())
-        return ui.span(f"{kpis['high_epss_count']:,}", style="color: #f59e0b;", class_="kpi-val")
+            sb_layer = sidebar_state.focus_layer()
+            c_layer = bus.layer.get()
+            c_cwe = bus.cwe_family.get()
+            c_vendor = bus.vendor.get()
+            brushed = bus.brushed_cves.get()
 
-    @output
-    @render.ui
-    def kpi_median():
-        kpis = calculate_kpis(filtered_df())
-        return ui.span(f"CVSS {kpis['median_cvss']} / EPSS {kpis['median_epss']:.1%}", style="color: #cbd5e1; font-size: 18px;", class_="kpi-val")
+            active_layers = [l for l in (c_layer, sb_layer if sb_layer != "All" else None) if l]
+            return filter_by_scope(
+                df,
+                vendors=[c_vendor] if c_vendor else None,
+                layers=active_layers if active_layers else None,
+                cwe_families=[c_cwe] if c_cwe else None,
+                cve_ids=brushed if brushed else None,
+            )
 
-    # Idiom 1: Prioritization Bubble Plot
-    @output
-    @render_plotly
-    def plot_bubble():
-        df = filtered_df()
-        cvss_t = input.cvss_cutoff()
-        epss_t = input.epss_cutoff()
-        focus = input.focus_layer()
-        landmarks = input.show_landmarks()
-        return create_prioritization_bubble_plot(
-            df, 
-            cvss_thresh=cvss_t, 
-            epss_thresh=epss_t,
-            focus_layer=None if focus == "All" else focus,
-            show_landmarks=landmarks
+        # Node 5: Single-Pass Shared Triage Metrics (computed ONCE for Banner + 4 KPIs)
+        @reactive.calc
+        def triage_metrics() -> TriageMetrics:
+            return calculate_triage_metrics(
+                focused_df(),
+                cvss_cutoff=sidebar_state.cvss_cutoff(),
+                epss_cutoff=sidebar_state.epss_cutoff(),
+                pre_enriched=True,
+            )
+
+        treemap_reset_seq = reactive.Value(0)
+
+        kpi_header_server(
+            "kpi_header",
+            metrics_calc=triage_metrics,
+            total_raw_count=total_raw_records,
+            vendor_count_calc=lambda: (len(sidebar_state.selected_vendors()), len(available_vendors)),
+            cvss_cutoff_calc=sidebar_state.cvss_cutoff,
+            epss_cutoff_calc=sidebar_state.epss_cutoff,
+            cti_preset_calc=sidebar_state.cti_preset,
+            focus_layer_calc=sidebar_state.focus_layer,
+            bus=bus,
+            on_reset_treemap=lambda: treemap_reset_seq.set(treemap_reset_seq.get() + 1),
         )
 
-    # Idiom 2: Architectural Treemap
-    @output
-    @render_plotly
-    def plot_treemap():
-        df = filtered_df()
-        return create_architectural_treemap(df, metric="threat_weight")
+        triage_queue_server(
+            "triage_queue",
+            focused_df_calc=focused_df,
+            bus=bus,
+        )
 
-    # Idiom 3: Exploitation Velocity Ridgeline
-    @output
-    @render_plotly
-    def plot_ridgeline():
-        df = filtered_df()
-        return create_velocity_ridgeline_plot(df, max_days=120)
+        # Persistent FigureWidgets initialized once per session and updated in-place
+        bubble_widget = go.FigureWidget()
+        treemap_widget = go.FigureWidget()
+        ridgeline_widget = go.FigureWidget()
 
-app = App(app_ui, server)
+        @output
+        @render_plotly
+        def plot_bubble() -> go.FigureWidget:
+            return bubble_widget
+
+        @output
+        @render_plotly
+        def plot_treemap() -> go.FigureWidget:
+            return treemap_widget
+
+        @output
+        @render_plotly
+        def plot_ridgeline() -> go.FigureWidget:
+            return ridgeline_widget
+
+        # Idiom 1: WebGL Prioritization Bubble Plot (reads ML ONLY when ML color mode is active)
+        @reactive.effect
+        def _sync_bubble_widget() -> None:
+            df = triaged_df()
+            color_mode = sidebar_state.color_by()
+
+            if color_mode == "threat_cluster":
+                res = ml_result()
+                if res is not None and len(res.df) > 0 and len(df) > 0:
+                    cluster_map = res.df.set_index("cve_id")["threat_cluster"]
+                    df = df.copy()
+                    df["threat_cluster"] = df["cve_id"].map(cluster_map).fillna("Unassigned")
+
+            sb_layer = sidebar_state.focus_layer()
+            effective_layer = bus.layer.get() or (sb_layer if sb_layer != "All" else None)
+
+            fig = create_prioritization_bubble_plot(
+                df,
+                cvss_thresh=sidebar_state.cvss_cutoff(),
+                epss_thresh=sidebar_state.epss_cutoff(),
+                color_by=color_mode,
+                y_scale=sidebar_state.y_scale(),
+                focus_layer=effective_layer,
+                focus_cwe=bus.cwe_family.get(),
+                focus_vendor=bus.vendor.get(),
+                highlighted_cves=bus.brushed_cves.get(),
+                inspected_cve=bus.inspected_cve.get(),
+                show_landmarks=sidebar_state.show_landmarks(),
+                as_widget=False,
+                show_title=False,
+            )
+            _sync_figure_widget(bubble_widget, fig)
+            _attach_bubble_callbacks(bubble_widget, bus)
+
+        # Idiom 2: Accessible Squarified Treemap (strictly isolated from ML & Y-scale & Landmarks!)
+        @reactive.effect
+        def _sync_treemap_widget() -> None:
+            _ = treemap_reset_seq.get()
+            df = triaged_df()
+            brushed = bus.brushed_cves.get()
+            if brushed:
+                df = filter_by_scope(df, cve_ids=brushed)
+
+            fig = create_architectural_treemap(
+                df,
+                metric=sidebar_state.treemap_metric(),
+                as_widget=False,
+                show_title=False,
+            )
+            _sync_figure_widget(treemap_widget, fig)
+            _attach_treemap_callbacks(treemap_widget, bus)
+
+        # Idiom 3: Sorted SLA Velocity Ridgeline (strictly isolated from CVSS/EPSS sliders & ML!)
+        @reactive.effect
+        def _sync_ridgeline_widget() -> None:
+            df = scoped_df()
+            fig = create_velocity_ridgeline_plot(
+                df,
+                max_days=120,
+                highlight_vendor=bus.vendor.get(),
+                as_widget=False,
+            )
+            _sync_figure_widget(ridgeline_widget, fig)
+            _attach_ridgeline_callbacks(ridgeline_widget, bus)
+
+    return App(app_ui, server)
+
+
+app = create_app()
 
 if __name__ == "__main__":
     app.run(port=8000)

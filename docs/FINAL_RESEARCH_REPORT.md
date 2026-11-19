@@ -13,7 +13,7 @@
 **Project Resources:**
 - **Public GitHub Repository:** [https://github.com/Evkune/CyberLens](https://github.com/Evkune/CyberLens)
 - **Core Technology Stack:** Python 3.12, Shiny for Python, Plotly, Scikit-Learn, SciPy, Pandas.
-- **Reference Dataset:** Unified correlation of NIST NVD (CVSS v3.1), FIRST.org EPSS v3, and CISA KEV (4,500+ records).
+- **Reference Dataset:** Unified live-feed correlation of NIST NVD (CVSS v3.1), FIRST.org EPSS v3 (`2026-11-19` vs. `2026-10-20` 30d baseline), and CISA KEV (`2026.11.18`, **3,092** enterprise records across 13 canonical vendors, including **521** CISA KEVs and **114** Ransomware KEVs).
 
 ---
 
@@ -22,11 +22,11 @@
 Enterprise Security Operations Centers (SOCs) are overwhelmed by alert fatigue: with more than 28,000 Common Vulnerabilities and Exposures (CVEs) published annually, compliance mandates force teams to patch every vulnerability scoring High or Critical ($\text{CVSS} \ge 7.0$). However, empirical threat telemetry shows that **fewer than 4.5% of published CVEs are ever exploited in real-world attacks**. Simultaneously, threat actors routinely chain Medium-severity vulnerabilities ($4.0 \le \text{CVSS} \le 6.9$) for local privilege escalation (LPE) and lateral movement, knowing these flaws bypass static compliance filters.
 
 **CyberLens** is an interactive Visual Analytics system designed to solve this prioritization dilemma through **Tamara Munzner’s Four-Level Nested Model**. By correlating theoretical technical severity (NVD CVSS v3.1), empirical exploitation probability (FIRST.org EPSS v3), and confirmed in-the-wild exploitation (CISA KEV), CyberLens delivers three coordinated visual idioms:
-1. **A Bivariate Prioritization Bubble Plot:** Maps CVSS against EPSS using the highest-accuracy spatial channels, with mark sizes scaled by area to reflect technical impact without visual exaggeration, and a 3-tier opacity hierarchy that highlights active threats.
-2. **An Architectural Weakness Treemap:** Uses a 100% space-filling squarified containment hierarchy (Layer $\to$ CWE Family $\to$ Vendor) to display expected risk ($\sum \text{CVSS} \times \text{EPSS}$) and remote network exposure via monotonic luminance.
-3. **A Multi-Cohort Ridgeline Plot:** Compares exploitation velocity across vendor cohorts using a mirror-reflected Kernel Density Estimation (KDE) at $t = 0$ days to eliminate artificial boundary spillover.
+1. **A Bivariate Prioritization Bubble Plot (`go.Scattergl` WebGL):** Maps CVSS against EPSS using the highest-accuracy spatial channels, with mark sizes calibrated by Stevens' Power Law area ($a = 0.7$, $D_{\max} = 28\text{px}$) to reflect technical impact without visual exaggeration, pre-attentive marker shapes for Ransomware KEVs and 30-day EPSS Surges, and a graduated opacity hierarchy.
+2. **An Architectural Weakness Treemap:** Uses a 100% space-filling squarified containment hierarchy (Layer $\to$ CWE Family $\to$ Vendor) to display actuarial expected risk ($\sum \text{CVSS} \times P_{\text{eff}}$) and remote network exposure via monotonic luminance, with bidirectional Focus+Context cross-filtering.
+3. **A Multi-Cohort Ridgeline Plot:** Compares exploitation velocity across vendor cohorts (sorted by ascending median lag $P_{50}$) using a mirror-reflected Kernel Density Estimation (KDE) at $t = 0$ days to eliminate artificial boundary spillover.
 
-The system is augmented by an unsupervised 4D K-Means clustering engine operating on logit-scaled EPSS to categorize vulnerabilities into four operational threat archetypes. In real-world validation, CyberLens **reduces emergency patching ticket volume by 75.1%** while maintaining **100% capture of confirmed active exploits**, bridging the gap between compliance requirements and true threat exposure.
+The system is augmented by an unsupervised **5D Logit K-Means** clustering engine (`Silhouette = 0.570`, `DBI = 0.84` at $K=4$) operating on `[cvss_base, logit(epss_score), epss_delta_30d, cvss_impact, access_ease]` to categorize vulnerabilities into operational threat archetypes. On the 3,092-CVE live enterprise snapshot, CyberLens **compresses the actionable SOC patching queue by 64.4%** (**542** actionable P0–P2 tickets vs. **1,521** CVSS-only tickets) while maintaining **100.0% recall of confirmed CISA KEV exploits (521/521)**—compared to **85.8% (447/521)** under CVSS-only triage, which misses **74** actively exploited vulnerabilities.
 
 ---
 
@@ -70,10 +70,10 @@ Security teams cannot solve this trade-off with static database queries. Every o
 ## 2. Data Abstraction (Munzner Level 2: WHAT)
 
 ### 2.1 Data Sources & Synthesis
-CyberLens unifies three authoritative cybersecurity feeds into a normalized dataset of 4,500+ vulnerabilities:
-- **NIST NVD:** Provides standardized CVSS v3.1 scores (base, impact), access prerequisites (attack vector, privileges required), and MITRE Common Weakness Enumeration (CWE) classifications.
-- **FIRST.org EPSS v3:** Supplies a continuous daily probability ($0.000$ to $1.000$) estimating the likelihood of exploitation within 30 days.
-- **CISA KEV:** Provides ground-truth confirmation of confirmed active exploitation in real-world attacks, alongside official disclosure and weaponization dates.
+CyberLens unifies three authoritative cybersecurity feeds via its modular ingestion pipeline (`cyberlens/ingestion/`) into a normalized snapshot (`data/cve_unified_dataset.parquet`) of **3,092** enterprise vulnerabilities across **13 canonical vendors** (`Apache`, `Apple`, `Atlassian`, `Cisco`, `Fortinet`, `Ivanti`, `Linux`, `Microsoft`, `Nginx`, `Oracle`, `Palo Alto Networks`, `PostgreSQL`, `VMware`), containing **521** CISA KEVs, **114** Ransomware KEVs, and **27** 30-day EPSS Surges:
+- **NIST NVD:** Provides standardized CVSS v3.1 scores (base, impact), access prerequisites (`attack_vector`, `attack_complexity`, `privileges_required`), and MITRE Common Weakness Enumeration (CWE) classifications.
+- **FIRST.org EPSS v3:** Supplies a continuous daily probability ($0.000$ to $1.000$) estimating exploitation likelihood within 30 days, alongside a 30-day lookback (`epss_score_30d`) to compute 30-day velocity surges (`epss_delta_30d`).
+- **CISA KEV:** Provides ground-truth confirmation of active exploitation in real-world attacks, ransomware campaign attribution, remediation mandates, and official disclosure vs. weaponization dates (median lag $P_{50} = 13.0$ days).
 
 ### 2.2 Munzner Data Classification Table
 Every attribute is classified following Tamara Munzner’s taxonomy:
@@ -88,17 +88,18 @@ Every attribute is classified following Tamara Munzner’s taxonomy:
 | `cvss_impact` | Value | Ordered $\to$ Quantitative | Sequential | Continuous: $[0.0, 6.0]$ | Destructive technical impact sub-score. |
 | `epss_score` | Value | Ordered $\to$ Quantitative | Sequential | Probability: $[0.000, 1.000]$ | Empirical 30-day weaponization probability. |
 | `is_kev` | Value | Categorical | — | Boolean: $\{\text{True}, \text{False}\}$ | Ground-truth active exploitation confirmation. |
-| `attack_vector` | Value | **Ordered $\to$ Ordinal** | **Sequential** | $\text{Network} > \text{Adjacent} > \text{Local} > \text{Physical}$ | Access barrier required; ordered by attacker ease. |
-| `privileges_required` | Value | **Ordered $\to$ Ordinal** | **Sequential** | $\text{None} < \text{Low} < \text{High}$ | Authentication level; ordered by prerequisite barrier. |
-| `days_to_exploit` | Derived | Ordered $\to$ Quantitative | Sequential | Continuous days: $[0, 120]$ | Elapsed time from disclosure to KEV weaponization. |
+| `attack_vector` | Value | **Ordered $\to$ Ordinal** | **Sequential** | $\text{Physical} < \text{Local} < \text{Adjacent} < \text{Network}$ | Access barrier required; ordered by attacker ease. |
+| `attack_complexity` | Value | **Ordered $\to$ Ordinal** | **Sequential** | $\text{High} < \text{Low}$ | Preconditions beyond attacker control; ordered by ease. |
+| `privileges_required` | Value | **Ordered $\to$ Ordinal** | **Sequential** | $\text{High} < \text{Low} < \text{None}$ | Authentication level; ordered by prerequisite barrier. |
+| `days_to_exploit` | Derived | Ordered $\to$ Quantitative | Sequential | Continuous days: $[0, +\infty)$ ($P_{50} = 13.0\text{d}$) | Elapsed time from disclosure to KEV weaponization. |
 
 > [!NOTE]
-> Following course principles, `attack_vector` and `privileges_required` are explicitly modeled as **Ordered $\to$ Ordinal** attributes with a **Sequential** direction. Network access is objectively easier for an attacker than physical access; they are not arbitrary unordered categories.
+> Following course principles, `attack_vector`, `attack_complexity`, and `privileges_required` are explicitly modeled as **Ordered $\to$ Ordinal** pandas categoricals with a **Sequential** direction. Network access is objectively easier for an attacker than physical access; they are not arbitrary unordered categories.
 
 ### 2.3 Derived Metrics
-- **Expected Risk Weight ($w_i$):** $w_i = \text{CVSS}_{\text{base}, i} \times \text{EPSS}_i$, capturing the classic actuarial definition of risk ($\text{Severity} \times \text{Probability}$).
+- **Actuarial Expected Risk ($w_i$):** $w_i = \text{CVSS}_{\text{base}, i} \times P_{\text{eff}, i}$, where $P_{\text{eff}, i} = 1.0$ for confirmed CISA KEV exploits and $P_{\text{eff}, i} = \text{EPSS}_i$ otherwise, capturing the classic actuarial definition of risk ($\text{Severity} \times \text{Probability}$).
 - **Weaponization Delay ($t$):** Elapsed days between NVD publication and CISA KEV listing ($t = \max(0, \text{Date}_{\text{KEV}} - \text{Date}_{\text{NVD}})$).
-- **Access Ease Index:** Continuous score ($0$ to $10$) derived from CVSS v3.1 attack vector and privilege weights ($8.22 \times W_{\text{AV}} \times W_{\text{PR}}$).
+- **Access Ease Index:** Continuous score ($0$ to $10$) derived from CVSS v3.1 attack vector, attack complexity, and privilege weights ($8.22 \times W_{\text{AV}} \times W_{\text{AC}} \times W_{\text{PR}}$).
 
 ---
 
@@ -158,9 +159,9 @@ All analytical workflows are anchored at the top level to **`Consume → Discove
 
 ### 4.2 Idiom 2: Architectural Weakness Squarified Treemap
 - **Space-Filling Containment Hierarchy:** Node-link diagrams waste up to 70% of screen space on background margins. A Treemap provides **100% pixel utilization**, displaying three nested levels: $\text{Layer} \to \text{CWE Family} \to \text{Vendor}$.
-- **Expected Risk Sizing Metric:** In a space-filling treemap, tile areas must be additive. Raw vulnerability count treats minor bugs as equal to wormable exploits. CyberLens sizes tiles by aggregate expected risk:
-  $$\text{Area} \propto \sum (\text{CVSS}_{\text{base}} \times \text{EPSS})$$
-  This automatically expands architectural zones harboring active threats while compressing zones filled with dormant compliance noise.
+- **Expected Risk Sizing Metric:** In a space-filling treemap, tile areas must be additive. Raw vulnerability count treats minor bugs as equal to wormable exploits. CyberLens sizes tiles by aggregate actuarial expected risk:
+  $$\text{Area} \propto \sum (\text{CVSS}_{\text{base}} \times P_{\text{eff}})$$
+  This automatically expands architectural zones harboring active threats while compressing zones filled with dormant compliance noise. Users can also dynamically switch the surface area metric to `Actionable Queue (P0–P2)` or `Confirmed CISA KEV`.
 - **Squarified Packing Algorithm:** Standard slice-and-dice layouts produce thin, elongated rectangles that are hard to compare visually. We enforce the squarified layout algorithm (*Bruls et al., 2000*), optimizing rectangle aspect ratios toward $1:1$ to maximize human area estimation accuracy.
 - **Sequential Luminance Encoding:** Within each weakness tile, the proportion of network-accessible flaws ($p_{\text{net}}$) is mapped to a monotonically decreasing luminance ramp (from light slate for local flaws to deep navy for remotely accessible flaws), avoiding problematic rainbow palettes.
 
@@ -175,55 +176,55 @@ All analytical workflows are anchored at the top level to **`Consume → Discove
 
 ### 4.5 Coordinated Interaction & Shneiderman's Mantra
 The interface follows Ben Shneiderman’s principle: *"Overview first, zoom and filter, then details-on-demand"*:
-- **Overview:** The default view presents the full 4,500+ CVE frontier, the complete corporate hierarchy, and baseline vendor velocity curves.
-- **Zoom:** Clicking a layer in the Treemap zooms smoothly into child weakness families and vendors.
-- **Filter (Focus+Context):** Filtering by technology stack or selecting a Treemap container highlights focused items in full color while dimming non-selected records into semi-transparent slate ghosts ($\alpha = 0.05$). Crucially, **the scatterplot coordinate axes remain strictly locked** ($[0, 10] \times [0, 1]$), ensuring that filtering does not alter the spatial mental map.
-- **Details-on-Demand:** Hovering over any bubble reveals an inspection card with the CVE ID, software vendor, CVSS metrics, EPSS percentile, attack vector, and assigned threat cluster.
+- **Overview:** The default view presents the full **3,092-CVE** frontier, the complete corporate hierarchy, and baseline vendor velocity curves.
+- **Zoom & Cross-Filtering:** Clicking any layer, CWE family, or vendor tile in the Treemap zooms into its sub-hierarchy and dispatches a synchronized event across the **Cross-Filter Bus** (`bus.layer`, `bus.cwe_family`, `bus.vendor`), updating active filter chips, KPIs, the Bubble Plot, and the 24h Patch Queue (with a `Reset Cross-Filters` control restoring the root Treemap view).
+- **Filter (Focus+Context):** Filtering by technology stack, lasso-selecting a cluster on the Bubble Plot, or selecting a Treemap container highlights focused items in full color while dimming non-selected records into semi-transparent slate ghosts ($\alpha = 0.06$). Crucially, **the scatterplot coordinate axes remain strictly locked** ($[0, 10.3] \times [-0.04, 1.06]$ in linear mode, with an on-demand `Log10` Y-axis toggle), ensuring that filtering does not alter the spatial mental map.
+- **Details-on-Demand & Actionability:** Hovering over any bubble reveals an inspection card with the CVE ID, software vendor, CVSS metrics, EPSS (`%` and `Δ30d`), blind-spot score, attack vector, and KEV lag (`N/A (Not in KEV)` when absent). Selecting any row in the interactive `DataGrid` Patch Queue populates the **Live CVE Inspector** drawer and pins the record on the Bubble Plot.
 
 ---
 
 ## 5. Empirical Case Studies & Operational Validation
 
-We evaluated CyberLens on three real-world analytical scenarios using the unified enterprise dataset:
+We evaluated CyberLens on three real-world analytical scenarios using the unified **3,092-CVE** live enterprise snapshot (`data/dataset_metadata.json`):
 
 ### 5.1 Case Study 1: The "Silent Threat" Lateral Movement Trap
 - **Scenario:** A SOC team relies on a standard $\text{CVSS} \ge 7.0$ patching rule.
-- **Visual Discovery:** In Idiom 1, the upper-left quadrant ($4.0 \le \text{CVSS} \le 6.9, \text{EPSS} \ge 0.30$) clearly displays **38 distinct vulnerabilities** rendered in high-chroma crimson and amber, suspended high above the low-risk baseline.
-- **Root Cause Analysis:** Inspecting these flaws reveals critical Windows Kernel and Win32k local privilege escalation (LPE) vulnerabilities (e.g., scoring CVSS 6.5 to 6.8 because they require local access). Despite moderate base scores, they have high EPSS probabilities ($> 0.65$) and confirmed active exploitation in ransomware campaigns.
-- **Outcome:** CyberLens rescues 38 actively weaponized vulnerabilities from being overlooked by conventional compliance rules.
+- **Visual Discovery:** In Idiom 1, the upper-left Quadrant II ($4.0 \le \text{CVSS} < 7.0$, elevated EPSS $\ge 0.30$, EPSS Surge, or confirmed CISA KEV) isolates **75 distinct Silent Threats** rendered in high-chroma crimson and amber, suspended above the low-risk baseline. Among the **521** confirmed KEVs in the dataset, **74** score below $\text{CVSS} 7.0$ and are completely missed by compliance-only rules.
+- **Root Cause Analysis:** Inspecting these Quadrant II outliers reveals actively exploited vulnerabilities such as **`CVE-2026-32202`** (Microsoft Windows, CVSS $4.3$, EPSS $0.686$, confirmed CISA KEV) and **`CVE-2023-20867`** (VMware Tools, CVSS $3.9$, EPSS $0.136$, confirmed CISA KEV, local vector). Despite Low/Medium base scores, they exhibit confirmed in-the-wild weaponization.
+- **Outcome:** CyberLens rescues all **75 Silent Threats** (including all **74** sub-7.0 KEVs) from being dropped by conventional compliance filters.
 
 ### 5.2 Case Study 2: Eliminating "Paper Tiger" Alert Fatigue
-- **Scenario:** Across a filtered enterprise stack of 1,840 CVEs, a traditional compliance query (`cvss >= 7.0`) flags **1,124 urgent tickets**.
-- **Visual Discovery:** In Idiom 1, the lower-right quadrant shows a dense band of 882 vulnerabilities scoring High CVSS ($7.0 - 8.8$) but with near-zero EPSS ($\overline{\text{EPSS}} = 0.008$). In the Treemap (Idiom 2), the Database layer contains 310 High-CVSS flaws but occupies less than 6.2% of expected risk area, signaling that these flaws lack active exploit code and require administrative local privileges.
-- **Surgical Inspection:** Drilling down into `OS & Firmware` $\to$ `Memory Corruption` highlights **`CVE-2024-38063`** (Windows TCP/IP Remote Code Execution, CVSS 9.8, EPSS 0.942, unauthenticated network vector, confirmed KEV), identifying it as a true emergency.
+- **Scenario:** Across the **3,092-CVE** enterprise stack, a traditional compliance query (`cvss >= 7.0`) flags **1,521 urgent tickets**—capturing only **447 / 521 (85.8%)** of active KEV exploits while missing **74** confirmed KEVs.
+- **Visual Discovery:** In Idiom 1, Quadrant III reveals **1,054 "Paper Tigers"** scoring High CVSS ($\ge 7.0$) with negligible real-world exploit probability ($\overline{\text{EPSS}} = 0.0098$) and no KEV or surge signal. In the Treemap (Idiom 2), `Database & Storage` contains **82** High-CVSS flaws (`31` KEVs) yet accounts for only **5.8%** of total actuarial expected risk, whereas `OS & Firmware` (`61.5%`) and `Network Infrastructure` (`23.6%`) concentrate **85.1%** of enterprise risk.
+- **Surgical Inspection:** Filtering and inspecting the P0/Q1 frontier highlights landmark weapons such as **`CVE-2024-3400`** (Palo Alto Networks PAN-OS, `Network Infrastructure`, `CWE-20`, CVSS $10.0$, Impact $6.0$, EPSS $1.000$ / $99.999\%$, unauthenticated network vector, confirmed **CISA KEV + Ransomware**, $0\text{d}$ exploitation lag, `P0 < 24h`) and **`CVE-2024-38063`** (Microsoft Windows TCP/IP, `OS & Firmware`, `CWE-191`, CVSS $9.8$, Impact $5.9$, EPSS $0.736$ with $+3.0\%$ 30d delta, unauthenticated network vector, `P2 < 14d`).
 - **Triage Comparison:**
 
-| Triage Strategy | Rule Applied | Flagged Tickets | Active KEV Captured | False Urgency Rate | Bandwidth Savings |
+| Triage Strategy | Rule Applied | Flagged Tickets | Active KEV Captured | False Urgency / Deferred | Workload Compression |
 |---|---|---|---|---|---|
-| **Traditional Compliance** | `CVSS >= 7.0` | 1,124 | 142 / 180 (78.9%) | **78.5% (882 Paper Tigers)** | Baseline (0%) |
-| **CyberLens RBVM** | **Cluster A (Weapons) + B (Silent)** | **280** | **180 / 180 (100.0%)** | **0.0% (Tigers deferred)** | **-75.1% Emergency Tickets** |
+| **Traditional Compliance** | `CVSS >= 7.0` | 1,521 | 447 / 521 (85.8%) | **74 KEVs missed · 1,054 Paper Tigers** | Baseline (0.0%) |
+| **CyberLens RBVM** | **P0–P2 Actionable Queue (`EPSS >= 0.30 \| KEV \| Surge`)** | **542** (`356` P0, `167` P1, `19` P2) | **521 / 521 (100.0%)** | **0 KEVs missed (1,054 Paper Tigers deferred to P3)** | **-64.4% SOC Workload** |
 
-CyberLens **reduces emergency patching workload by 75.1%** while increasing active exploit capture from 78.9% to **100%**.
+CyberLens **compresses SOC patching workload by 64.4%** while raising active KEV capture from **85.8%** to **100.0%**.
 
 ### 5.3 Case Study 3: Network Appliances vs. Application Stacks
-- **Scenario:** A CISO mandates a uniform 14-day patching SLA for all Critical vulnerabilities.
-- **Visual Discovery in Idiom 3:** Toggling the 7-day threshold line across vendor ridges reveals two distinct hazard regimes:
-  1. *Perimeter Network Appliances (`Cisco`, `Fortinet`, `Ivanti`):* Display an extreme **L-shaped distribution peaking at $t \in [0, 4]$ days**, with **over 64% of weaponization occurring within the first week**. Because edge devices sit directly on the internet without EDR agents, threat actors weaponize them immediately. A 14-day SLA fails completely because the attack wave has already peaked.
-  2. *Application & OS Stacks (`Apache`, `Microsoft`, `Oracle`):* Display a **bimodal distribution** with a minor initial mode followed by a major public PoC wave peaking between **18 and 35 days**.
-- **Actionable CISO Governance Matrix:**
-  - **Tier 0 (Perimeter Network Appliances):** Emergency hotfix within **< 24 Hours**.
-  - **Tier 1 (Critical Enterprise Software):** Patch deployed within **< 72 Hours** (ahead of the 18-day PoC peak).
-  - **Tier 2 (Silent Threats / Local Privilege Escalation):** Remediate within **7 Days** to block ransomware lateral movement.
-  - **Tier 3 (Paper Tigers):** Defer to scheduled **30–60 Day** maintenance windows.
-  - **Tier 4 (Dormant Backlog):** Address organically during standard version upgrades.
+- **Scenario:** A CISO mandates a uniform 14-day patching SLA for all Critical vulnerabilities (mirroring the dataset's **13.0-day** overall median KEV lag).
+- **Visual Discovery in Idiom 3:** Inspecting the Ridgeline density curves alongside the `0–7d Flash Zone`, `24h (P0)`, and `14d Legacy SLA` markers exposes two sharply distinct hazard regimes:
+  1. *Perimeter Network Appliances & Fast-Weaponized Stacks:* `Fortinet` ($n=25$, $P_{50} = 1.0\text{d}$, **64.0%** $\le 7\text{d}$), `Microsoft` ($n=193$, $P_{50} = 2.0\text{d}$, **53.9%** $\le 7\text{d}$), `Ivanti` ($n=33$, $P_{50} = 3.0\text{d}$, **57.6%** $\le 7\text{d}$), `Apple` ($n=75$, $P_{50} = 4.0\text{d}$, **57.3%** $\le 7\text{d}$), `Cisco` ($n=44$, $P_{50} = 5.0\text{d}$, **54.5%** $\le 7\text{d}$), and `Palo Alto Networks` ($n=13$, $P_{50} = 6.0\text{d}$, **53.8%** $\le 7\text{d}$) concentrate over half of all weaponizations within the first week. A uniform 14-day SLA yields a negative safety margin ($\Delta t_{\text{safety}} < 0$).
+  2. *Enterprise Middleware, Virtualization & OS Kernels:* `VMware` ($n=28$, $P_{50} = 52.5\text{d}$, $28.6\% \le 7\text{d}$), `Apache` ($n=25$, $P_{50} = 90.0\text{d}$, $16.0\% \le 7\text{d}$), `Linux` ($n=38$, $P_{50} = 105.5\text{d}$, $15.8\% \le 7\text{d}$), and `Oracle` ($n=29$, $P_{50} = 373.0\text{d}$, $10.3\% \le 7\text{d}$) exhibit slower, multi-wave PoC weaponization tails.
+- **Actionable 5-Tier CISO SLA Matrix (`Little's Law` Governance):**
+  - **P0 — Emergency (< 24 Hours, 356 CVEs):** Confirmed KEVs that are ransomware-linked, network-accessible, or $\text{CVSS} \ge 8.5$.
+  - **P1 — Urgent (< 72 Hours, 167 CVEs):** Remaining local KEVs, Q2 Silent Threats, and 30-day EPSS Surges.
+  - **P2 — Elevated (< 14 Days, 19 CVEs):** Non-KEV high-EPSS vulnerabilities ($\text{EPSS} \ge 0.30$) ahead of PoC escalation.
+  - **P3 — Paper Tigers (Defer 60 Days, 1,054 CVEs):** High-CVSS theoretical flaws with negligible exploitation signal.
+  - **P4 — Dormant Backlog (1,496 CVEs):** Address organically during standard release upgrades.
 
 ---
 
 ## 6. Algorithmic Machine Learning Integration & Discussion
 
-### 6.1 Unsupervised 4D Threat Clustering
-To assist visual exploration without imposing rigid manual cutoffs, CyberLens integrates an unsupervised K-Means clustering model operating in a 4-dimensional normalized feature space:
-$$\mathbf{x} = [\text{CVSS}_{\text{base}}, \,\, \text{logit}(\text{EPSS}), \,\, \text{CVSS}_{\text{impact}}, \,\, \text{access\_ease}]$$
+### 6.1 Unsupervised 5D Threat Clustering
+To assist visual exploration without imposing rigid manual cutoffs, CyberLens integrates an unsupervised K-Means++ clustering model operating in a 5-dimensional standardized feature space ($K \in [3, 6]$):
+$$\mathbf{x} = [\text{CVSS}_{\text{base}}, \,\, \text{logit}(\text{EPSS}), \,\, \text{epss\_delta\_30d}, \,\, \text{CVSS}_{\text{impact}}, \,\, \text{access\_ease}]$$
 
 ```
                    WHY LOGIT SCALING MATTERS FOR THREAT CLUSTERING
@@ -237,16 +238,17 @@ $$\mathbf{x} = [\text{CVSS}_{\text{base}}, \,\, \text{logit}(\text{EPSS}), \,\, 
     (K-Means cleanly isolates Silent Threats from Paper Tigers and Dormant Backlog)
 ```
 
-- **Why the Logit Transform is Essential:** Over 85% of EPSS values lie below $0.02$. In raw probability space, Euclidean distance treats values between $0.001$ and $0.02$ as practically identical, causing standard clustering to lump them together. The logit transform ($\ln(\frac{p}{1-p})$) linearizes log-odds, allowing the algorithm to cleanly distinguish moderate, actively exploited flaws from dormant background noise.
-- **Four Operational Archetypes:**
-  - *Cluster A (Critical Weapons):* High CVSS ($\overline{8.14}$), elevated EPSS ($\overline{0.149}$), high KEV ratio ($8.8\%$).
-  - *Cluster B (Silent Threats):* Moderate CVSS ($\overline{5.38}$), restricted access vectors, elevated real-world exploit probability.
-  - *Cluster C (Paper Tigers):* High CVSS ($\overline{8.10}$), negligible EPSS ($\overline{0.0098}$), compliance noise.
-  - *Cluster D (Dormant Backlog):* Low severity, low exploitability, minimal operational risk.
+- **Why the Logit Transform is Essential:** Over 85% of EPSS values lie below $0.02$. In raw probability space, Euclidean distance treats values between $0.001$ and $0.02$ as practically identical, causing standard clustering to lump them together. The logit transform ($\ln(\frac{p}{1-p})$) linearizes log-odds, allowing the algorithm—together with 30-day EPSS acceleration and `access_ease`—to achieve a **Silhouette Score of `0.570`** and **Davies-Bouldin Index of `0.84`** at $K = 4$.
+- **Four Operational Archetypes ($K = 4$ on 3,092 CVEs):**
+  - *Cluster A (Critical Weapons, $n = 430$):* High CVSS ($\overline{9.27}$), high EPSS ($\overline{0.435}$), $+2.8\%$ mean 30d delta, **61.2%** CISA KEV ratio.
+  - *Cluster B (Silent Threats, $n = 398$):* Moderate CVSS ($\overline{6.75}$), elevated empirical EPSS ($\overline{0.050}$, $+0.5\%$ delta), **10.6%** KEV ratio.
+  - *Cluster C (Paper Tigers, $n = 955$):* High CVSS ($\overline{7.71}$), low empirical EPSS ($\overline{0.041}$), compliance noise (**19.6%** KEV ratio).
+  - *Cluster D (Dormant Backlog, $n = 1,309$):* Low severity ($\overline{5.35}$), negligible EPSS ($\overline{0.0053}$), **2.2%** KEV ratio.
 
-### 6.2 System Limitations & Scalability
-- **Temporal EPSS Dynamics:** CVSS scores are mostly static once published, whereas EPSS scores update daily based on real-world threat telemetry. In production, CyberLens runs daily batch refreshes to update positions and trigger alerts when vulnerabilities cross risk thresholds.
-- **Rendering Performance:** WebGL acceleration (`scattergl`) is used for the scatterplot to maintain 60 fps interactivity when rendering thousands of items.
+### 6.2 System Architecture, Limitations & Scalability
+- **Modular Decoupled Engineering:** The codebase separates ingestion (`cyberlens/ingestion/`), pure vectorized RBVM domain logic (`cyberlens/domain/`), Plotly idioms (`cyberlens/viz/`), and Shiny UI modules (`cyberlens/ui/`), verified by **37 automated `pytest` tests** and persistent `go.FigureWidget` synchronization (`batch_update()`) that prevents unnecessary KDE or Treemap recomputations when toggling ML clustering.
+- **Temporal EPSS Dynamics:** CVSS scores are mostly static once published, whereas EPSS scores update daily based on real-world threat telemetry. In production, CyberLens runs daily batch refreshes (`feeds_client.py`) to update positions and trigger alerts when vulnerabilities cross risk thresholds.
+- **Rendering Performance:** WebGL acceleration (`go.Scattergl`) is used for the scatterplot to maintain 60 fps interactivity when rendering thousands of items.
 - **Hierarchy Depth:** Treemap nesting is intentionally constrained to three levels (`Layer → CWE → Vendor`) to prevent sub-pixel tile fragmentation and preserve visual legibility.
 
 ---

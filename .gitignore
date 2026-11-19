@@ -24,14 +24,21 @@ htmlcov/
 data/*.csv
 data/*.parquet
 !data/.gitkeep
+!data/cve_unified_dataset.parquet
 
 # Local legacy & course materials
 course_materials/
-defense_briefs/
+defense_briefs/*
+!defense_briefs/DEFENSE_BRIEF_CYBERLENS.md
 revision_sheets/
 reports/
 src/
 SPECIFICATION.md
+
+# Temporary scratch / handoff / browser artifacts
+CONTEXT_HANDOFF.md
+implementation_plan.md
+*.png
 
 # Operating System files
 .DS_Store
