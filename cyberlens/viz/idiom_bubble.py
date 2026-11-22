@@ -34,6 +34,24 @@ STEVENS_K_SCALE = 167.61
 STEVENS_EXPONENT = 0.7
 MAX_BUBBLE_DIAMETER_PX = 28.0
 
+SLA_LEGEND_LABELS: Dict[str, str] = {
+    SLA_TIER_ORDER[0]: "P0 <24h",
+    SLA_TIER_ORDER[1]: "P1 <72h",
+    SLA_TIER_ORDER[2]: "P2 <14d",
+    SLA_TIER_ORDER[3]: "P3 Defer",
+    SLA_TIER_ORDER[4]: "P4 Backlog",
+}
+
+
+def _compact_cluster_label(cluster_name: str) -> str:
+    """Shortens K-Means archetype labels for single-row legend display."""
+    base = str(cluster_name).split("(")[0].strip()
+    if base.startswith("Cluster ") and ":" in base:
+        prefix, title = base.split(":", 1)
+        code = prefix.replace("Cluster ", "").strip()
+        return f"{code} · {title.strip()}"
+    return base
+
 
 def _compute_safe_offsets(x_val: float, y_val: float, y_scale: str = "linear") -> Tuple[int, int]:
     """Adaptive pixel offsets (ax, ay) preventing landmark callouts from clipping outside the plot canvas."""
@@ -179,9 +197,9 @@ BUBBLE_HOVERTEMPLATE = (
 def _add_quadrant_corner_labels(fig: go.Figure) -> None:
     corners = [
         (0.99, 0.985, "right", "top", "Q1 · CRITICAL WEAPONS", "#B91C1C"),
-        (0.01, 0.985, "left", "top", "Q2 · SILENT THREATS (BLIND SPOTS)", "#B45309"),
-        (0.99, 0.015, "right", "bottom", "Q3 · PAPER TIGERS (ALERT FATIGUE)", "#1D4ED8"),
-        (0.01, 0.015, "left", "bottom", "Q4 · DORMANT BACKLOG", "#52525B"),
+        (0.01, 0.985, "left", "top", "Q2 · SILENT THREATS", "#B45309"),
+        (0.99, 0.015, "right", "bottom", "Q3 · PAPER TIGERS", "#1D4ED8"),
+        (0.01, 0.015, "left", "bottom", "Q4 · DORMANT", "#52525B"),
     ]
     for x_pos, y_pos, x_anchor, y_anchor, label, color in corners:
         fig.add_annotation(
@@ -194,10 +212,10 @@ def _add_quadrant_corner_labels(fig: go.Figure) -> None:
             text=f"<b>{label}</b>",
             showarrow=False,
             font=dict(size=9, color=color),
-            bgcolor="rgba(255, 255, 255, 0.88)",
+            bgcolor="rgba(255, 255, 255, 0.90)",
             bordercolor="#E4E4E7",
             borderwidth=1,
-            borderpad=3,
+            borderpad=2,
         )
 
 
@@ -215,24 +233,34 @@ def create_prioritization_bubble_plot(
     show_landmarks: bool = False,
     as_widget: bool = False,
     show_title: bool = True,
+    pre_enriched: bool = False,
 ) -> go.Figure:
     fig = go.Figure()
 
     if len(df) == 0:
         fig.add_annotation(
-            text="No vulnerabilities matching the selected asset inventory.",
+            text="No vulnerabilities matching the selected scope.",
             xref="paper",
             yref="paper",
             x=0.5,
             y=0.5,
             showarrow=False,
-            font=dict(size=14, color=TEXT_MUTED),
+            font=dict(size=13, color=TEXT_MUTED),
         )
-        apply_swiss_light_layout(fig, title="Threat Prioritization: Empty Scope")
+        apply_swiss_light_layout(
+            fig,
+            title="Threat Prioritization: Empty Scope" if show_title else "",
+            margin=dict(l=16, r=16, t=36 if show_title else 12, b=16),
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            shapes=[],
+        )
         return maybe_figure_widget(fig, as_widget=as_widget)
 
-    # Always enrich with current slider thresholds so SLA tiers and quadrants reflect active cutoffs
-    plot_df = enrich_prioritization(df, cvss_cutoff=cvss_thresh, epss_cutoff=epss_thresh)
+    if pre_enriched and {"sla_tier", "is_silent_threat", "blindspot_score"}.issubset(df.columns):
+        plot_df = df.copy()
+    else:
+        plot_df = enrich_prioritization(df, cvss_cutoff=cvss_thresh, epss_cutoff=epss_thresh)
 
     mode_key = (color_by or "sla_tier").lower().strip()
     if mode_key in {"threat_cluster", "ml_cluster", "kmeans", "cluster"}:
@@ -288,7 +316,7 @@ def create_prioritization_bubble_plot(
                     x=context_df["cvss_base"],
                     y=context_df["_y_plot"],
                     mode="markers",
-                    name=f"Context ({len(context_df):,} unselected)",
+                    name=f"Context ({len(context_df):,})",
                     marker=dict(
                         size=context_df["impact_area"],
                         sizemode="area",
@@ -318,7 +346,7 @@ def create_prioritization_bubble_plot(
                     x=sub["cvss_base"],
                     y=sub["_y_plot"],
                     mode="markers",
-                    name=tier,
+                    name=SLA_LEGEND_LABELS.get(tier, tier),
                     marker=dict(
                         size=sub["impact_area"],
                         sizemode="area",
@@ -339,7 +367,8 @@ def create_prioritization_bubble_plot(
             (c_name, get_cluster_style(c_name, idx))
             for idx, c_name in enumerate(sorted(unique_clusters))
         ]
-        styled_clusters.sort(key=lambda item: int(item[1]["zorder"]))
+        # Reverse alphabetical order in trace stack so Cluster A paints on top and appears first with traceorder="reversed"
+        styled_clusters.sort(key=lambda item: item[0], reverse=True)
 
         for c_name, cfg in styled_clusters:
             sub = active_render_df.loc[active_render_df["threat_cluster"].astype(str) == c_name]
@@ -350,7 +379,7 @@ def create_prioritization_bubble_plot(
                     x=sub["cvss_base"],
                     y=sub["_y_plot"],
                     mode="markers",
-                    name=c_name,
+                    name=_compact_cluster_label(c_name),
                     marker=dict(
                         size=sub["impact_area"],
                         sizemode="area",
@@ -405,20 +434,29 @@ def create_prioritization_bubble_plot(
                 )
             )
 
-    # Crosshair Triage Threshold Boundaries
+    # Crosshair Triage Threshold Boundaries with legible opaque pills in low-density areas
     fig.add_vline(
         x=cvss_thresh,
         line=dict(color="#71717A", dash="dash", width=1.2),
-        annotation_text=f"CVSS Cutoff ({cvss_thresh:.1f})",
-        annotation_position="bottom left",
-        annotation_font=dict(size=10, color=TEXT_MUTED),
+        annotation_text=f"CVSS {cvss_thresh:.1f}",
+        annotation_position="top left",
+        annotation_yshift=-22,
+        annotation_font=dict(size=9.5, color=TEXT_PRIMARY),
+        annotation_bgcolor="rgba(255, 255, 255, 0.92)",
+        annotation_bordercolor="#E4E4E7",
+        annotation_borderwidth=1,
+        annotation_borderpad=2,
     )
     fig.add_hline(
         y=max(epss_thresh, 1e-4) if y_scale_clean == "log" else epss_thresh,
         line=dict(color="#71717A", dash="dash", width=1.2),
-        annotation_text=f"EPSS Cutoff ({epss_thresh:.0%})",
-        annotation_position="bottom right",
-        annotation_font=dict(size=10, color=TEXT_MUTED),
+        annotation_text=f"EPSS {epss_thresh:.0%}",
+        annotation_position="top left",
+        annotation_font=dict(size=9.5, color=TEXT_PRIMARY),
+        annotation_bgcolor="rgba(255, 255, 255, 0.92)",
+        annotation_bordercolor="#E4E4E7",
+        annotation_borderwidth=1,
+        annotation_borderpad=2,
     )
 
     _add_quadrant_corner_labels(fig)
@@ -536,9 +574,11 @@ def create_prioritization_bubble_plot(
     yaxis_cfg: Dict[str, object]
     if y_scale_clean == "log":
         yaxis_cfg = dict(
+            visible=True,
             title="EPSS v3 30-Day Probability (Log10)",
             type="log",
             range=[-4.05, 0.08],
+            tickmode="array",
             tickvals=[0.0001, 0.001, 0.01, 0.1, 0.3, 1.0],
             ticktext=["0.01%", "0.1%", "1%", "10%", "30%", "100%"],
             gridcolor=GRID_COLOR,
@@ -549,9 +589,13 @@ def create_prioritization_bubble_plot(
         )
     else:
         yaxis_cfg = dict(
+            visible=True,
             title="EPSS v3 30-Day Exploit Probability",
             type="linear",
             range=[-0.04, 1.06],
+            tickmode="auto",
+            tickvals=None,
+            ticktext=None,
             tickformat=".0%",
             gridcolor=GRID_COLOR,
             zerolinecolor=ZERO_LINE_COLOR,
@@ -563,26 +607,31 @@ def create_prioritization_bubble_plot(
     apply_swiss_light_layout(
         fig,
         title=f"Threat Prioritization: Severity vs Weaponization{focus_suffix}" if show_title else "",
-        margin=dict(l=52, r=16, t=92 if not show_title else 96, b=46),
+        margin=dict(l=52, r=14, t=54 if not show_title else 76, b=46),
         xaxis=dict(
+            visible=True,
             title="NVD CVSS v3.1 Base Score",
             range=[0.0, 10.3],
+            fixedrange=False,
             gridcolor=GRID_COLOR,
             zerolinecolor=ZERO_LINE_COLOR,
             linecolor=ZERO_LINE_COLOR,
             tickfont=dict(color=TEXT_MUTED, size=10),
             title_font=dict(color=TEXT_MUTED, size=11),
         ),
-        yaxis=yaxis_cfg,
+        yaxis=dict(**yaxis_cfg, fixedrange=False),
         legend=dict(
             orientation="h",
+            traceorder="reversed",
             yanchor="bottom",
             y=1.01,
             xanchor="left",
             x=0.0,
-            font=dict(size=9.5, color=TEXT_MUTED),
+            itemwidth=30,
+            font=dict(size=10, color=TEXT_MUTED),
         ),
-        dragmode="lasso",
+        dragmode="pan",
+        selections=[],
     )
     if show_title:
         fig.update_layout(

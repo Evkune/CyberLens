@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
-from shiny import App, Inputs, Outputs, Session, reactive, ui
+from shiny import App, Inputs, Outputs, Session, reactive, render, ui
 from shinywidgets import output_widget, render_plotly
 
 from cyberlens.config import LAYER_ORDER
@@ -53,6 +53,10 @@ def _attach_bubble_callbacks(widget: object, bus: object) -> None:
                 if cves:
                     bus.brushed_cves.set(cves)
 
+        def _on_deselect(t: object, points: object) -> None:
+            if bus.brushed_cves.get() is not None:
+                bus.brushed_cves.set(None)
+
         def _on_click(t: object, points: object, state: object) -> None:
             inds = getattr(points, "point_inds", None)
             cdata = getattr(t, "customdata", None)
@@ -65,6 +69,8 @@ def _attach_bubble_callbacks(widget: object, bus: object) -> None:
         try:
             if hasattr(trace, "on_selection"):
                 trace.on_selection(_on_select)
+            if hasattr(trace, "on_deselect"):
+                trace.on_deselect(_on_deselect)
             if hasattr(trace, "on_click"):
                 trace.on_click(_on_click)
         except Exception:
@@ -95,12 +101,33 @@ def _attach_treemap_callbacks(widget: go.FigureWidget, bus: object) -> None:
 
 
 def _sync_figure_widget(widget: go.FigureWidget, fig: go.Figure) -> None:
-    """Updates an existing FigureWidget in-place to avoid anywidget teardown/remount races."""
+    """Updates an existing FigureWidget in-place while clearing stale annotations, shapes, selections, and axis ticks."""
+    new_layout = fig.layout.to_plotly_json()
+    new_layout.setdefault("annotations", [])
+    new_layout.setdefault("shapes", [])
+    new_layout.setdefault("selections", [])
     with widget.batch_update():
         widget.data = []
         if fig.data:
-            widget.add_traces(list(fig.data))
-        widget.layout = fig.layout
+            fresh_traces = list(fig.data)
+            for tr in fresh_traces:
+                if hasattr(tr, "selectedpoints"):
+                    tr.selectedpoints = None
+            widget.add_traces(fresh_traces)
+        widget.layout.annotations = ()
+        widget.layout.shapes = ()
+        widget.layout.selections = ()
+        if "xaxis" in new_layout:
+            new_layout["xaxis"].setdefault("tickvals", None)
+            new_layout["xaxis"].setdefault("ticktext", None)
+        else:
+            widget.layout.xaxis = {}
+        if "yaxis" in new_layout:
+            new_layout["yaxis"].setdefault("tickvals", None)
+            new_layout["yaxis"].setdefault("ticktext", None)
+        else:
+            widget.layout.yaxis = {}
+        widget.layout.update(new_layout)
 
 
 def _attach_ridgeline_callbacks(widget: object, bus: object) -> None:
@@ -168,11 +195,30 @@ def create_app() -> App:
                     ui.div(
                         ui.div(
                             ui.div(
-                                ui.span("Threat Prioritization: Severity vs Weaponization", class_="card-header-title"),
-                                ui.span("Lasso or click bubbles", class_="card-header-hint"),
+                                ui.div(
+                                    ui.span("01", class_="section-step-num mono-num"),
+                                    ui.span("Threat Prioritization: Severity vs Weaponization", class_="card-header-title"),
+                                    class_="card-header-left",
+                                ),
+                                ui.div(
+                                    ui.span("Drag to pan · Scroll to zoom · Lasso tool to filter · Click to inspect", class_="card-header-hint"),
+                                    ui.output_ui("bubble_clear_selection", inline=True),
+                                    ui.tags.button(
+                                        "Reset Zoom",
+                                        id="btn_reset_bubble_zoom",
+                                        type="button",
+                                        class_="btn-reset-zoom",
+                                        hidden=True,
+                                    ),
+                                    class_="card-header-right",
+                                ),
                                 class_="card-header-bar",
                             ),
-                            output_widget("plot_bubble", height="430px"),
+                            ui.div(
+                                "● Standard   ◆ Ransomware KEV   ▲ 30d EPSS Surge   ·   Area = CVSS Impact",
+                                class_="shape-micro-key",
+                            ),
+                            output_widget("plot_bubble", height="420px"),
                             class_="soc-section",
                         ),
                         class_="col-12 col-lg-6 editorial-col-left",
@@ -180,11 +226,15 @@ def create_app() -> App:
                     ui.div(
                         ui.div(
                             ui.div(
-                                ui.span("Attack Surface Hierarchy (Squarified Treemap)", class_="card-header-title"),
-                                ui.span("Click tiles to cross-filter", class_="card-header-hint"),
+                                ui.div(
+                                    ui.span("02", class_="section-step-num mono-num"),
+                                    ui.span("Attack Surface Hierarchy (Squarified Treemap)", class_="card-header-title"),
+                                    class_="card-header-left",
+                                ),
+                                ui.span("Click tile to cross-filter", class_="card-header-hint"),
                                 class_="card-header-bar",
                             ),
-                            output_widget("plot_treemap", height="430px"),
+                            output_widget("plot_treemap", height="436px"),
                             class_="soc-section",
                         ),
                         class_="col-12 col-lg-6 editorial-col-right",
@@ -192,7 +242,16 @@ def create_app() -> App:
                     class_="row g-0 editorial-two-col",
                 ),
                 ui.div(
-                    output_widget("plot_ridgeline", height="340px"),
+                    ui.div(
+                        ui.div(
+                            ui.span("03", class_="section-step-num mono-num"),
+                            ui.span("Exploitation Velocity by Vendor Cohort (Sorted by P50 Lag)", class_="card-header-title"),
+                            class_="card-header-left",
+                        ),
+                        ui.span("Click curve to isolate vendor · Shaded = 0–7d Flash · Diamonds = P50", class_="card-header-hint"),
+                        class_="card-header-bar",
+                    ),
+                    output_widget("plot_ridgeline", height="330px"),
                     class_="soc-section soc-section-bordered",
                 ),
                 triage_queue_ui("triage_queue"),
@@ -219,6 +278,7 @@ def create_app() -> App:
                     ui.span(f"Snapshot: {snapshot_date}", class_="mono-num"),
                     class_="editorial-footer",
                 ),
+                class_="editorial-main",
             ),
         ),
     )
@@ -291,6 +351,12 @@ def create_app() -> App:
             )
 
         treemap_reset_seq = reactive.Value(0)
+        bubble_reset_seq = reactive.Value(0)
+
+        def _handle_full_reset() -> None:
+            sidebar_state.reset_filters()
+            treemap_reset_seq.set(treemap_reset_seq.get() + 1)
+            bubble_reset_seq.set(bubble_reset_seq.get() + 1)
 
         kpi_header_server(
             "kpi_header",
@@ -302,7 +368,7 @@ def create_app() -> App:
             cti_preset_calc=sidebar_state.cti_preset,
             focus_layer_calc=sidebar_state.focus_layer,
             bus=bus,
-            on_reset_treemap=lambda: treemap_reset_seq.set(treemap_reset_seq.get() + 1),
+            on_reset_sidebar_focus=_handle_full_reset,
         )
 
         triage_queue_server(
@@ -313,8 +379,37 @@ def create_app() -> App:
 
         # Persistent FigureWidgets initialized once per session and updated in-place
         bubble_widget = go.FigureWidget()
+        bubble_widget._config = {
+            "responsive": True,
+            "scrollZoom": True,
+            "doubleClick": "reset",
+            "displaylogo": False,
+            "modeBarButtonsToRemove": [
+                "sendDataToCloud",
+                "editInChartStudio",
+                "zoomIn2d",
+                "zoomOut2d",
+                "autoScale2d",
+            ],
+        }
         treemap_widget = go.FigureWidget()
+        treemap_widget._config = {
+            "responsive": True,
+            "displaylogo": False,
+            "modeBarButtonsToRemove": ["sendDataToCloud", "editInChartStudio"],
+        }
         ridgeline_widget = go.FigureWidget()
+        ridgeline_widget._config = {
+            "responsive": True,
+            "displaylogo": False,
+            "modeBarButtonsToRemove": [
+                "sendDataToCloud",
+                "editInChartStudio",
+                "zoomIn2d",
+                "zoomOut2d",
+                "autoScale2d",
+            ],
+        }
 
         @output
         @render_plotly
@@ -331,9 +426,39 @@ def create_app() -> App:
         def plot_ridgeline() -> go.FigureWidget:
             return ridgeline_widget
 
+        @output
+        @render.ui
+        def bubble_clear_selection() -> ui.Tag:
+            if not bus.brushed_cves.get():
+                return ui.span()
+            return ui.tags.button(
+                "Clear Selection",
+                id="btn_clear_bubble_selection",
+                type="button",
+                class_="btn-clear-selection",
+            )
+
+        @reactive.effect
+        @reactive.event(input.bubble_clear_selection_req)
+        def _clear_bubble_selection_server() -> None:
+            bus.brushed_cves.set(None)
+            bubble_reset_seq.set(bubble_reset_seq.get() + 1)
+
+        @reactive.effect
+        @reactive.event(input.bubble_zoom_reset_req)
+        def _reset_bubble_zoom_server() -> None:
+            y_scale = sidebar_state.y_scale()
+            y_range = [-4.05, 0.08] if y_scale == "log" else [-0.04, 1.06]
+            with bubble_widget.batch_update():
+                bubble_widget.layout.xaxis.autorange = False
+                bubble_widget.layout.yaxis.autorange = False
+                bubble_widget.layout.xaxis.range = [0.0, 10.3]
+                bubble_widget.layout.yaxis.range = y_range
+
         # Idiom 1: WebGL Prioritization Bubble Plot (reads ML ONLY when ML color mode is active)
         @reactive.effect
         def _sync_bubble_widget() -> None:
+            _ = bubble_reset_seq.get()
             df = triaged_df()
             color_mode = sidebar_state.color_by()
 
@@ -361,6 +486,7 @@ def create_app() -> App:
                 show_landmarks=sidebar_state.show_landmarks(),
                 as_widget=False,
                 show_title=False,
+                pre_enriched=True,
             )
             _sync_figure_widget(bubble_widget, fig)
             _attach_bubble_callbacks(bubble_widget, bus)
@@ -392,6 +518,7 @@ def create_app() -> App:
                 max_days=120,
                 highlight_vendor=bus.vendor.get(),
                 as_widget=False,
+                show_title=False,
             )
             _sync_figure_widget(ridgeline_widget, fig)
             _attach_ridgeline_callbacks(ridgeline_widget, bus)

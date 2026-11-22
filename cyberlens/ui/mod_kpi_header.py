@@ -110,51 +110,66 @@ def kpi_header_server(
         cvss_t = cvss_cutoff_calc()
         epss_t = epss_cutoff_calc()
 
-        scope_desc = f"{sel_v}/{tot_v} Enterprise Vendors" if sel_v < tot_v else "All Enterprise Vendors"
-        if m.compliance_tickets > 0:
-            reduction_str = f"-{m.alert_reduction_pct:.1f}% Queue Compression"
-        else:
-            reduction_str = "Balanced Queue"
+        if m.total_count == 0:
+            return ui.div(
+                ui.div(
+                    ui.span("Empty Scope: ", style="color: #09090B; font-weight: 700;"),
+                    ui.span(
+                        f"{sel_v}/{tot_v} vendors selected (0 / {total_raw_count:,} CVEs) — select at least one vendor or reset filters.",
+                        style="color: #52525B;",
+                    ),
+                ),
+                class_="little-law-banner",
+            )
 
-        missed_kev_pct = max(0.0, 100.0 - m.compliance_kev_capture_pct)
+        scope_desc = f"{sel_v}/{tot_v} vendors" if sel_v < tot_v else f"All {tot_v} vendors"
+        count_label = (
+            f"{m.total_count:,} CVEs"
+            if m.total_count == total_raw_count
+            else f"{m.total_count:,} / {total_raw_count:,} CVEs"
+        )
 
-        return ui.div(
-            ui.div(
-                ui.span("Triage Policy Comparison: ", style="color: #09090B; font-weight: 700;"),
-                ui.span(f"{scope_desc} ", style="color: #09090B; font-weight: 600;"),
+        if m.kev_count > 0:
+            missed_kev_pct = max(0.0, 100.0 - m.compliance_kev_capture_pct)
+            miss_color = "#B91C1C" if missed_kev_pct > 0 else "#52525B"
+            recall_str = f"{m.cyberlens_kev_capture_pct:.0f}% KEV recall"
+            policy_parts = [
+                ui.span(f"CVSS ≥ {cvss_t:.1f} ", style="color: #52525B;"),
                 ui.span(
-                    f"({m.total_count:,} / {total_raw_count:,} CVEs)",
+                    f"misses {missed_kev_pct:.0f}% of KEVs",
                     class_="mono-num",
-                    style="color: #52525B; font-size: 11px; margin-right: 8px;",
+                    style=f"color: {miss_color}; font-weight: 700;",
                 ),
-                ui.span("|", style="color: #E4E4E7; margin: 0 6px;"),
-                ui.span(f"CVSS-Only Policy (>= {cvss_t:.1f}): ", style="color: #52525B;"),
+                ui.span("·", style="color: #D4D4D8; margin: 0 7px;"),
+                ui.span(f"RBVM P0–P2 (EPSS ≥ {epss_t:.0%}): ", style="color: #52525B;"),
                 ui.span(
-                    f"{m.compliance_tickets:,} tickets",
-                    class_="mono-num",
-                    style="color: #09090B; font-weight: 700;",
-                ),
-                ui.span(
-                    f" (misses {missed_kev_pct:.0f}% of KEVs)",
-                    class_="mono-num",
-                    style="color: #B91C1C; font-size: 11px; font-weight: 600;",
-                ),
-                ui.span(" / ", style="color: #E4E4E7; margin: 0 6px;"),
-                ui.span(f"Actionable (P0–P2 @ EPSS >= {epss_t:.0%}): ", style="color: #52525B;"),
-                ui.span(
-                    f"{m.actionable_tickets:,} tickets ",
-                    class_="mono-num",
-                    style="color: #09090B; font-weight: 700;",
-                ),
-                ui.span(
-                    f"({reduction_str} · 100% KEV Recall)",
+                    recall_str,
                     class_="mono-num",
                     style=(
                         "color: #09090B; font-weight: 600; font-size: 11px; "
-                        "background: #F4F4F5; padding: 2px 7px; "
+                        "background: #F4F4F5; padding: 1px 6px; "
                         "border-radius: 3px; border: 1px solid #E4E4E7;"
                     ),
                 ),
+            ]
+        else:
+            policy_parts = [
+                ui.span("0 CISA KEVs in active slice", class_="mono-num", style="color: #52525B; font-weight: 600;"),
+                ui.span("·", style="color: #D4D4D8; margin: 0 7px;"),
+                ui.span(
+                    f"CVSS ≥ {cvss_t:.1f}: {m.compliance_tickets:,} · P0–P2: {m.actionable_tickets:,}",
+                    class_="mono-num",
+                    style="color: #52525B;",
+                ),
+            ]
+
+        return ui.div(
+            ui.div(
+                ui.span("Scope: ", style="color: #52525B; font-weight: 600;"),
+                ui.span(scope_desc, style="color: #09090B; font-weight: 700;"),
+                ui.span(f" ({count_label})", class_="mono-num", style="color: #52525B;"),
+                ui.span("|", style="color: #E4E4E7; margin: 0 8px;"),
+                *policy_parts,
             ),
             class_="little-law-banner",
         )
@@ -185,35 +200,23 @@ def kpi_header_server(
         if c_cwe:
             chips.append(ui.span(f"Treemap CWE: {c_cwe}", class_="filter-chip"))
         if c_vendor:
-            chips.append(ui.span(f"Focused Vendor: {c_vendor}", class_="filter-chip"))
+            chips.append(ui.span(f"Vendor: {c_vendor}", class_="filter-chip"))
         if brushed:
-            chips.append(ui.span(f"Lasso Selection: {len(brushed):,} CVEs", class_="filter-chip mono-num"))
+            chips.append(ui.span(f"Lasso: {len(brushed):,} CVEs", class_="filter-chip mono-num"))
         if pinned:
-            chips.append(ui.span(f"Pinned CVE: {pinned}", class_="filter-chip chip-pin mono-num"))
+            chips.append(ui.span(f"Pinned: {pinned}", class_="filter-chip chip-pin mono-num"))
 
         if not chips:
-            return ui.div(
-                ui.div(
-                    ui.span(
-                        "Cross-Filter Ready: ",
-                        style="color: #09090B; font-weight: 700;",
-                    ),
-                    ui.span(
-                        "Click any Treemap tile, lasso-select bubbles, or select a table row to synchronize views.",
-                        style="color: #52525B;",
-                    ),
-                ),
-                class_="filter-chips-bar",
-            )
+            return ui.div()
 
         return ui.div(
             ui.div(
-                ui.span("Active Cross-Filters: ", style="color: #52525B; font-weight: 700; margin-right: 8px;"),
+                ui.span("Active Filters: ", style="color: #52525B; font-weight: 700; margin-right: 8px;"),
                 *chips,
             ),
             ui.input_action_button(
                 "btn_reset_cross_filters",
-                "Reset Cross-Filters",
+                "Reset All Filters",
                 class_="btn-swiss",
             ),
             class_="filter-chips-bar",
@@ -260,10 +263,20 @@ def kpi_header_server(
     @render.ui
     def kpi_compression() -> ui.Tag:
         m = metrics_calc()
+        if m.total_count == 0 or m.compliance_tickets == 0:
+            val_text = "—" if m.total_count == 0 else "0.0%"
+            sub_text = (
+                "No scoped vulnerabilities"
+                if m.total_count == 0
+                else f"{m.actionable_tickets:,} actionable · 0 CVSS-only tickets"
+            )
+        else:
+            val_text = f"-{m.alert_reduction_pct:.1f}%" if m.alert_reduction_pct > 0 else "0.0%"
+            sub_text = (
+                f"{m.actionable_tickets:,} actionable vs {m.compliance_tickets:,} CVSS-only "
+                f"({m.p3_paper_tigers_count:,} deferred)"
+            )
         return ui.div(
-            ui.div(f"-{m.alert_reduction_pct:.1f}%", style="color: #09090B;", class_="kpi-val"),
-            ui.div(
-                f"{m.actionable_tickets:,} actionable vs {m.compliance_tickets:,} CVSS-only ({m.p3_paper_tigers_count:,} deferred)",
-                class_="kpi-sub",
-            ),
+            ui.div(val_text, style="color: #09090B;", class_="kpi-val"),
+            ui.div(sub_text, class_="kpi-sub"),
         )

@@ -67,31 +67,6 @@ QUADRANT_LABELS: Dict[str, str] = {
     "Q4": "Q4: Dormant Backlog (Low Priority)",
 }
 
-# Okabe-Ito / CIE HCL colorblind-safe palette calibrated for dark UI surfaces
-SLA_TIER_COLORS: Dict[str, str] = {
-    "P0: Emergency (<24h)": "#D92B2B",
-    "P1: Urgent (<72h)": "#E69F00",
-    "P2: Elevated (<14d)": "#CC79A7",
-    "P3: Paper Tiger (Defer 60d)": "#3B7DD8",
-    "P4: Dormant Backlog": "#64748B",
-}
-
-CLUSTER_PALETTE: List[str] = [
-    "#D92B2B",
-    "#E69F00",
-    "#3B7DD8",
-    "#64748B",
-    "#CC79A7",
-    "#56B4E9",
-]
-
-TREEMAP_SEQUENTIAL_SCALE: List[Tuple[float, str]] = [
-    (0.00, "#1E293B"),
-    (0.35, "#0369A1"),
-    (0.70, "#D97706"),
-    (1.00, "#DC2626"),
-]
-
 # Canonical enterprise vendors mapped to architectural layer and CPE/KEV aliases
 ENTERPRISE_VENDORS: Dict[str, Dict[str, object]] = {
     "Microsoft": {

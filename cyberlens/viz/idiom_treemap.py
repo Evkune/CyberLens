@@ -84,12 +84,15 @@ def create_architectural_treemap(
             x=0.5,
             y=0.5,
             showarrow=False,
-            font=dict(size=14, color=TEXT_MUTED),
+            font=dict(size=13, color=TEXT_MUTED),
         )
         apply_swiss_light_layout(
             fig,
-            title="Architectural Weakness Containment Hierarchy (Space-Filling Treemap)",
-            margin=dict(l=10, r=10, t=45, b=10),
+            title="Attack Surface Hierarchy" if show_title else "",
+            margin=dict(l=10, r=10, t=36 if show_title else 12, b=10),
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            shapes=[],
         )
         return maybe_figure_widget(fig, as_widget=as_widget)
 
@@ -141,8 +144,11 @@ def create_architectural_treemap(
         )
         apply_swiss_light_layout(
             fig,
-            title="Architectural Weakness Containment Hierarchy (Space-Filling Treemap)",
-            margin=dict(l=10, r=10, t=45, b=10),
+            title="Attack Surface Hierarchy" if show_title else "",
+            margin=dict(l=10, r=10, t=36 if show_title else 12, b=10),
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            shapes=[],
         )
         return maybe_figure_widget(fig, as_widget=as_widget)
 
@@ -273,6 +279,27 @@ def create_architectural_treemap(
             exp_risk=float(row.expected_risk),
         )
 
+    metric_val_fmt = "%{value:.1f}" if resolved_metric == "expected_risk" else "%{value:,.0f}"
+    hover_lines = [
+        "<b>%{label}</b>",
+        f"• {METRIC_LABELS[resolved_metric]}: <b>{metric_val_fmt}</b>",
+    ]
+    if resolved_metric != "expected_risk":
+        hover_lines.append("• Actuarial Expected Risk: %{customdata[5]:.1f}")
+    if resolved_metric != "actionable_count":
+        hover_lines.append("• Actionable SLA Queue (P0–P2): %{customdata[4]} / %{customdata[0]} CVEs")
+    else:
+        hover_lines.append("• Total Scoped CVEs: %{customdata[0]}")
+    if resolved_metric != "kev_count":
+        hover_lines.append("• Confirmed CISA KEV Exploits: %{customdata[1]}")
+    hover_lines.extend(
+        [
+            "• Mean CVSS Severity: %{customdata[2]:.1f}",
+            "• Network Attack Surface Ratio: %{customdata[3]:.1%}",
+        ]
+    )
+    treemap_hovertemplate = "<br>".join(hover_lines) + "<extra></extra>"
+
     fig.add_trace(
         go.Treemap(
             ids=ids,
@@ -309,23 +336,16 @@ def create_architectural_treemap(
                 bordercolor="#09090B",
                 font=dict(color="#09090B", size=11),
             ),
-            hovertemplate=(
-                "<b>%{label}</b><br>"
-                f"• {METRIC_LABELS[resolved_metric]}: <b>%{{value:.1f}}</b><br>"
-                "• Actuarial Expected Risk: %{customdata[5]:.1f}<br>"
-                "• Actionable SLA Queue (P0–P2): %{customdata[4]} / %{customdata[0]} CVEs<br>"
-                "• Confirmed CISA KEV Exploits: %{customdata[1]}<br>"
-                "• Mean CVSS Severity: %{customdata[2]:.1f}<br>"
-                "• Network Attack Surface Ratio: %{customdata[3]:.1%}"
-                "<extra></extra>"
-            ),
+            hovertemplate=treemap_hovertemplate,
         )
     )
 
     apply_swiss_light_layout(
         fig,
         title=f"Attack Surface Hierarchy — {METRIC_LABELS[resolved_metric]}" if show_title else "",
-        margin=dict(l=8, r=8, t=46 if show_title else 26, b=8),
+        margin=dict(l=6, r=6, t=46 if show_title else 22, b=6),
+        annotations=[],
+        shapes=[],
     )
 
     widget = maybe_figure_widget(fig, as_widget=as_widget)

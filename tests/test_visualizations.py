@@ -218,10 +218,57 @@ def test_triage_queue_table_formatting_and_empty_resilience(sample_df: pd.DataFr
 
     # Empty resilience across all 3 idioms + table formatter
     empty_df = sample_df.iloc[0:0].copy()
-    assert len(create_prioritization_bubble_plot(empty_df).data) == 0
-    assert len(create_architectural_treemap(empty_df, as_widget=False).data) == 0
-    assert len(create_velocity_ridgeline_plot(empty_df).data) == 0
+    empty_bubble = create_prioritization_bubble_plot(empty_df, show_title=False)
+    empty_treemap = create_architectural_treemap(empty_df, as_widget=False, show_title=False)
+    empty_ridgeline = create_velocity_ridgeline_plot(empty_df, show_title=False)
+    assert len(empty_bubble.data) == 0
+    assert len(empty_treemap.data) == 0
+    assert len(empty_ridgeline.data) == 0
+    assert empty_bubble.layout.xaxis.visible is False
+    assert empty_bubble.layout.yaxis.visible is False
+    assert empty_treemap.layout.xaxis.visible is False
+    assert empty_treemap.layout.yaxis.visible is False
+    assert empty_ridgeline.layout.xaxis.visible is False
+    assert empty_ridgeline.layout.yaxis.visible is False
     assert len(format_action_queue_table(empty_df)) == 0
+
+
+def test_polish_invariants_legend_order_treemap_hover_and_velocity_semantics(
+    sample_df: pd.DataFrame,
+) -> None:
+    # 1. Bubble plot reversed legend traceorder, default pan dragmode & pre_enriched fast-path parity
+    fig_std = create_prioritization_bubble_plot(sample_df, show_title=False, pre_enriched=False)
+    fig_fast = create_prioritization_bubble_plot(sample_df, show_title=False, pre_enriched=True)
+    assert fig_std.layout.legend.traceorder == "reversed"
+    assert fig_std.layout.dragmode == "pan"
+    assert len(fig_std.data) == len(fig_fast.data)
+
+    # 2. Treemap hovertemplate never duplicates the active metric label
+    for metric in ("expected_risk", "actionable_count", "kev_count"):
+        tm = create_architectural_treemap(sample_df, metric=metric, as_widget=False, show_title=False)
+        ht = str(tm.data[0].hovertemplate)
+        assert ht.count("Actuarial Expected Risk") == 1
+        assert ht.count("Confirmed CISA KEV Exploits") == 1
+
+    # 3. Ridgeline semantic velocity color: slow cohorts (P50 > 14d) never wrap to emergency crimson
+    from cyberlens.viz.idiom_ridgeline import _velocity_cohort_color
+
+    assert _velocity_cohort_color(1.0) == "#B91C1C"
+    assert _velocity_cohort_color(5.0) == "#B45309"
+    assert _velocity_cohort_color(10.0) == "#1D4ED8"
+    assert _velocity_cohort_color(373.0) == "#71717A"
+
+    # 4. Operational Patch Queue places core triage metrics before verbose product/layer fields
+    table = format_action_queue_table(rank_action_queue(sample_df.head(20)))
+    assert list(table.columns[:7]) == [
+        "SLA Tier",
+        "CVE ID",
+        "Vendor",
+        "CVSS",
+        "EPSS",
+        "Δ30d",
+        "Threat Signal",
+    ]
 
 
 def test_shiny_app_factory_and_cached_ml_decoupling() -> None:

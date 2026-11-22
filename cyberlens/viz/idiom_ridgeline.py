@@ -9,7 +9,6 @@ from scipy.stats import gaussian_kde, iqr
 
 from cyberlens.viz.theme import (
     GRID_COLOR,
-    RIDGELINE_COHORT_PALETTE,
     TEXT_MUTED,
     TEXT_PRIMARY,
     ZERO_LINE_COLOR,
@@ -51,41 +50,63 @@ def compute_reflected_kde(days_array: np.ndarray, t_grid: np.ndarray) -> np.ndar
     return density_reflected
 
 
+def _velocity_cohort_color(p50_days: float) -> str:
+    """Maps cohort median weaponization lag (P50) semantically to urgency hues."""
+    if p50_days <= 3.0:
+        return "#B91C1C"
+    if p50_days <= 7.0:
+        return "#B45309"
+    if p50_days <= 14.0:
+        return "#1D4ED8"
+    return "#71717A"
+
+
+def _empty_ridgeline_figure(message: str, show_title: bool, as_widget: bool) -> go.Figure:
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message,
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        font=dict(size=13, color=TEXT_MUTED),
+    )
+    apply_swiss_light_layout(
+        fig,
+        title="Exploitation Velocity by Vendor Cohort" if show_title else "",
+        margin=dict(l=16, r=16, t=36 if show_title else 12, b=16),
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False, tickvals=[], ticktext=[]),
+        shapes=[],
+    )
+    return maybe_figure_widget(fig, as_widget=as_widget)
+
+
 def create_velocity_ridgeline_plot(
     df: pd.DataFrame,
     max_days: int = 120,
     highlight_vendor: Optional[str] = None,
     as_widget: bool = False,
+    show_title: bool = True,
 ) -> go.Figure:
     fig = go.Figure()
 
     if len(df) == 0 or "days_to_exploit" not in df.columns:
-        fig.add_annotation(
-            text="Insufficient weaponization event data for selected cohorts (min 5 events required).",
-            xref="paper",
-            yref="paper",
-            x=0.5,
-            y=0.5,
-            showarrow=False,
-            font=dict(size=14, color=TEXT_MUTED),
+        return _empty_ridgeline_figure(
+            "Insufficient weaponization event data for selected cohorts (min 5 events required).",
+            show_title=show_title,
+            as_widget=as_widget,
         )
-        apply_swiss_light_layout(fig, title="Exploitation Velocity Density by Vendor Cohort")
-        return maybe_figure_widget(fig, as_widget=as_widget)
 
     kev_df = df.loc[df["is_kev"].astype(bool) & df["days_to_exploit"].notna()].copy()
 
     if len(kev_df) < 5:
-        fig.add_annotation(
-            text="Insufficient weaponization event data for selected cohorts (min 5 events required).",
-            xref="paper",
-            yref="paper",
-            x=0.5,
-            y=0.5,
-            showarrow=False,
-            font=dict(size=14, color=TEXT_MUTED),
+        return _empty_ridgeline_figure(
+            "Insufficient weaponization event data for selected cohorts (min 5 events required).",
+            show_title=show_title,
+            as_widget=as_widget,
         )
-        apply_swiss_light_layout(fig, title="Exploitation Velocity Density by Vendor Cohort")
-        return maybe_figure_widget(fig, as_widget=as_widget)
 
     kev_df["vendor_str"] = kev_df["vendor"].astype(str)
     kev_df["days_num"] = pd.to_numeric(kev_df["days_to_exploit"], errors="coerce")
@@ -109,17 +130,11 @@ def create_velocity_ridgeline_plot(
         )
 
     if not cohorts:
-        fig.add_annotation(
-            text="No vendor cohort meets the minimum sample size (n >= 3 KEV observations).",
-            xref="paper",
-            yref="paper",
-            x=0.5,
-            y=0.5,
-            showarrow=False,
-            font=dict(size=14, color=TEXT_MUTED),
+        return _empty_ridgeline_figure(
+            "No vendor cohort meets the minimum sample size (n >= 3 KEV observations).",
+            show_title=show_title,
+            as_widget=as_widget,
         )
-        apply_swiss_light_layout(fig, title="Exploitation Velocity Density by Vendor Cohort")
-        return maybe_figure_widget(fig, as_widget=as_widget)
 
     # Sort strictly by P50 median ascending (fastest zero-day weaponization ecosystems ordered first)
     cohorts.sort(key=lambda c: (c["p50"], c["vendor"]))
@@ -146,7 +161,7 @@ def create_velocity_ridgeline_plot(
         p50 = cohort["p50"]
         zd_pct = cohort["zero_day_pct"]
 
-        color = RIDGELINE_COHORT_PALETTE[i % len(RIDGELINE_COHORT_PALETTE)]
+        color = _velocity_cohort_color(p50)
         density = compute_reflected_kde(subset, x_grid)
         max_d = float(density.max())
         density_scaled = (
@@ -249,25 +264,38 @@ def create_velocity_ridgeline_plot(
         x1=7.0,
         fillcolor="rgba(185, 28, 28, 0.06)",
         line_width=0,
-        annotation_text="0–7d Flash Zone",
-        annotation_position="top left",
-        annotation_font=dict(size=9, color="#B91C1C"),
     )
     fig.add_vline(
         x=1.0,
         line=dict(color="#B91C1C", dash="dot", width=1.4),
-        annotation_text="24h SLA (P0)",
-        annotation_position="bottom right",
-        annotation_font=dict(size=9, color="#B91C1C"),
     )
     fig.add_vline(
         x=14.0,
         line=dict(color="#B45309", dash="dash", width=1.4),
-        annotation_text="14d Legacy SLA (Δt < 0)",
-        annotation_position="top right",
-        annotation_yshift=-16,
-        annotation_xshift=4,
-        annotation_font=dict(size=9, color="#B45309"),
+    )
+
+    # Top-margin SLA callouts positioned cleanly above the highest ridge (zero overlap at 1280px & 1440px)
+    fig.add_annotation(
+        x=1.0,
+        y=1.02,
+        xref="x",
+        yref="paper",
+        xanchor="left",
+        yanchor="bottom",
+        text="<b>24h P0</b>",
+        showarrow=False,
+        font=dict(size=9.5, color="#B91C1C"),
+    )
+    fig.add_annotation(
+        x=14.8,
+        y=1.02,
+        xref="x",
+        yref="paper",
+        xanchor="left",
+        yanchor="bottom",
+        text="<b>14d Legacy SLA</b> (Δt &lt; 0)",
+        showarrow=False,
+        font=dict(size=9.5, color="#B45309"),
     )
 
     max_baseline = tickvals[-1] if tickvals else 1.0
@@ -279,9 +307,12 @@ def create_velocity_ridgeline_plot(
             "Exploitation Velocity by Vendor Cohort "
             "(Sorted by P50 Lag)"
             f"{title_suffix}"
-        ),
-        margin=dict(l=180, r=20, t=52, b=56),
+        )
+        if show_title
+        else "",
+        margin=dict(l=178, r=18, t=54 if show_title else 30, b=48),
         xaxis=dict(
+            visible=True,
             title="Elapsed Days from Disclosure to CISA KEV Weaponization (t_KEV − t_NVD)",
             range=[0, max_days],
             gridcolor=GRID_COLOR,
@@ -291,13 +322,14 @@ def create_velocity_ridgeline_plot(
             title_font=dict(color=TEXT_MUTED, size=11),
         ),
         yaxis=dict(
+            visible=True,
             title="",
             showticklabels=True,
             tickmode="array",
             tickvals=tickvals,
             ticktext=ticktext,
             tickfont=dict(size=11, color=TEXT_PRIMARY),
-            range=[-0.15, max_baseline + RIDGE_MAX_HEIGHT + 0.25],
+            range=[-0.15, max_baseline + RIDGE_MAX_HEIGHT + 0.30],
             gridcolor=GRID_COLOR,
             zeroline=False,
         ),

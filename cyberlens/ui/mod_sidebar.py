@@ -48,6 +48,7 @@ class SidebarState:
     show_landmarks: Callable[[], bool]
     enable_ml: Callable[[], bool]
     k_clusters: Callable[[], int]
+    reset_filters: Callable[[], None]
 
 
 @module.ui
@@ -69,7 +70,7 @@ def sidebar_ui(
             selected="all",
         ),
         ui.tags.hr(class_="sidebar-divider"),
-        ui.div("Operational Triage Cutoffs", class_="sidebar-section-title"),
+        ui.div("Operational Cutoffs", class_="sidebar-section-title"),
         ui.input_slider(
             "cvss_cutoff",
             "CVSS Severity Cutoff (τ_CVSS):",
@@ -87,71 +88,100 @@ def sidebar_ui(
             step=0.05,
         ),
         ui.tags.hr(class_="sidebar-divider"),
-        ui.div("Visual Encoding & Focus", class_="sidebar-section-title"),
-        ui.input_select(
-            "color_by",
-            "Bubble Color Channel:",
-            choices=BUBBLE_COLOR_MODES,
-            selected="sla_tier",
-        ),
-        ui.input_radio_buttons(
-            "y_scale",
-            "Bubble EPSS Y-Axis Scale:",
-            choices={"linear": "Linear [0–100%]", "log": "Log10 (Tail Detail)"},
-            selected="linear",
-            inline=True,
-        ),
-        ui.input_select(
-            "treemap_metric",
-            "Treemap Surface Area Metric:",
-            choices=TREEMAP_METRIC_CHOICES,
-            selected="expected_risk",
-        ),
-        ui.input_select(
-            "focus_layer",
-            "Isolate Architectural Tier:",
-            choices=["All"] + list(available_layers),
-            selected="All",
-        ),
-        ui.input_switch("show_landmarks", "Pin Reference Landmarks", value=True),
-        ui.tags.hr(class_="sidebar-divider"),
-        ui.div("5D Threat Clustering (K-Means++)", class_="sidebar-section-title"),
-        ui.input_switch("enable_ml", "Enable 5D Logit K-Means", value=False),
-        ui.panel_conditional(
-            "input.enable_ml",
-            ui.input_slider(
-                "k_clusters",
-                "Threat Archetypes (K):",
-                min=3,
-                max=6,
-                value=4,
-                step=1,
+        ui.tags.details(
+            ui.tags.summary(
+                ui.span("Asset Inventory", class_="disclosure-label"),
+                ui.output_ui("vendor_count_badge", inline=True),
+                class_="swiss-disclosure-summary",
             ),
-            ui.output_ui("ml_quality_card"),
-        ),
-        ui.tags.hr(class_="sidebar-divider"),
-        ui.div("Enterprise Asset Inventory", class_="sidebar-section-title"),
-        ui.div(
-            ui.input_action_button(
-                "btn_select_all_vendors",
-                "All Vendors",
-                class_="btn-swiss",
-                style="margin-right: 4px;",
+            ui.div(
+                ui.div(
+                    ui.input_action_button(
+                        "btn_select_all_vendors",
+                        "All Vendors",
+                        class_="btn-swiss",
+                        style="margin-right: 4px;",
+                    ),
+                    ui.input_action_button(
+                        "btn_default_vendors",
+                        "Core Stack",
+                        class_="btn-swiss",
+                    ),
+                    style="margin-bottom: 8px;",
+                ),
+                ui.div(
+                    ui.input_checkbox_group(
+                        "selected_vendors",
+                        None,
+                        choices={v: v for v in available_vendors},
+                        selected=initial_vendors,
+                    ),
+                    class_="vendor-checkbox-grid",
+                ),
+                class_="swiss-disclosure-body",
             ),
-            ui.input_action_button(
-                "btn_default_vendors",
-                "Core Stack",
-                class_="btn-swiss",
+            class_="swiss-disclosure",
+        ),
+        ui.tags.details(
+            ui.tags.summary(
+                ui.span("Visual Encoding & Scale", class_="disclosure-label"),
+                class_="swiss-disclosure-summary",
             ),
-            style="margin-bottom: 6px;",
+            ui.div(
+                ui.input_select(
+                    "color_by",
+                    "Bubble Color Channel:",
+                    choices=BUBBLE_COLOR_MODES,
+                    selected="sla_tier",
+                ),
+                ui.input_radio_buttons(
+                    "y_scale",
+                    "Bubble EPSS Y-Axis Scale:",
+                    choices={"linear": "Linear [0–100%]", "log": "Log10 (Tail)"},
+                    selected="linear",
+                    inline=True,
+                ),
+                ui.input_select(
+                    "treemap_metric",
+                    "Treemap Area Metric:",
+                    choices=TREEMAP_METRIC_CHOICES,
+                    selected="expected_risk",
+                ),
+                ui.input_select(
+                    "focus_layer",
+                    "Isolate Architectural Tier:",
+                    choices=["All"] + list(available_layers),
+                    selected="All",
+                ),
+                ui.input_switch("show_landmarks", "Pin Reference Landmarks", value=False),
+                class_="swiss-disclosure-body",
+            ),
+            class_="swiss-disclosure",
         ),
-        ui.input_checkbox_group(
-            "selected_vendors",
-            "Monitored Software Vendors:",
-            choices={v: v for v in available_vendors},
-            selected=initial_vendors,
+        ui.tags.details(
+            ui.tags.summary(
+                ui.span("5D Logit K-Means (ML)", class_="disclosure-label"),
+                class_="swiss-disclosure-summary",
+            ),
+            ui.div(
+                ui.input_switch("enable_ml", "Enable 5D Logit K-Means", value=False),
+                ui.panel_conditional(
+                    "input.enable_ml",
+                    ui.input_slider(
+                        "k_clusters",
+                        "Threat Archetypes (K):",
+                        min=3,
+                        max=6,
+                        value=4,
+                        step=1,
+                    ),
+                    ui.output_ui("ml_quality_card"),
+                ),
+                class_="swiss-disclosure-body",
+            ),
+            class_="swiss-disclosure",
         ),
-        width=295,
+        width=285,
         bg="#FAFAFA",
     )
 
@@ -185,6 +215,15 @@ def sidebar_server(
 
     @output
     @render.ui
+    def vendor_count_badge() -> ui.Tag:
+        selected = list(input.selected_vendors() or [])
+        total = len(available_vendors)
+        is_partial = len(selected) < total
+        badge_cls = "disclosure-badge disclosure-badge-warn mono-num" if is_partial else "disclosure-badge mono-num"
+        return ui.span(f"{len(selected)} / {total}", class_=badge_cls)
+
+    @output
+    @render.ui
     def ml_quality_card() -> ui.Tag:
         if not input.enable_ml():
             return ui.div()
@@ -192,9 +231,12 @@ def sidebar_server(
         if res is None or res.n_clusters == 0:
             return ui.div("Insufficient records for clustering.", class_="ml-summary-box")
 
+        ordered_items = sorted(
+            res.profiles.items(),
+            key=lambda item: str(item[1].get("name", f"Cluster {item[0]}")),
+        )
         rows = []
-        for c_id in sorted(res.profiles.keys()):
-            prof = res.profiles[c_id]
+        for c_id, prof in ordered_items:
             short_name = str(prof.get("name", f"Cluster {c_id}")).split("(")[0].strip()
             rows.append(
                 ui.div(
@@ -222,6 +264,10 @@ def sidebar_server(
             class_="ml-summary-box",
         )
 
+    def _reset_sidebar_filters() -> None:
+        ui.update_select("focus_layer", selected="All", session=session)
+        ui.update_select("cti_preset", selected="all", session=session)
+
     return SidebarState(
         selected_vendors=lambda: list(input.selected_vendors() or []),
         cti_preset=lambda: str(input.cti_preset() or "all"),
@@ -234,4 +280,5 @@ def sidebar_server(
         show_landmarks=lambda: bool(input.show_landmarks()),
         enable_ml=lambda: bool(input.enable_ml()),
         k_clusters=lambda: int(input.k_clusters()),
+        reset_filters=_reset_sidebar_filters,
     )

@@ -600,6 +600,225 @@ shiny-data-frame tbody tr.selected {
     color: #09090B !important;
 }
 
+/* Native Progressive Disclosure (<details>) in Sidebar */
+.swiss-disclosure {
+    border-top: 1px solid #E4E4E7;
+    padding: 8px 0;
+}
+.swiss-disclosure:last-of-type {
+    border-bottom: 1px solid #E4E4E7;
+}
+.swiss-disclosure-summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+    padding: 2px 0;
+    color: #09090B;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.swiss-disclosure-summary::-webkit-details-marker {
+    display: none;
+}
+.swiss-disclosure-summary::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+    background-color: #52525B;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.25L6 7.5L9 4.25' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center / contain;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.25L6 7.5L9 4.25' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center / contain;
+    rotate: -90deg;
+}
+.swiss-disclosure[open] > .swiss-disclosure-summary::before {
+    rotate: 0deg;
+}
+@media (prefers-reduced-motion: no-preference) {
+    .swiss-disclosure-summary::before {
+        transition: rotate 0.16s ease-out;
+    }
+    .swiss-disclosure::details-content {
+        interpolate-size: allow-keywords;
+        overflow: clip;
+        contain: layout;
+        transition: block-size 0.2s ease-out, content-visibility 0.2s ease-out allow-discrete;
+    }
+    .swiss-disclosure:not([open])::details-content {
+        block-size: 0;
+    }
+}
+.disclosure-label {
+    flex: 1 1 auto;
+}
+.disclosure-badge {
+    font-size: 10px;
+    font-weight: 600;
+    color: #52525B;
+    background: #FFFFFF;
+    border: 1px solid #E4E4E7;
+    border-radius: 3px;
+    padding: 1px 5px;
+    letter-spacing: 0.02em;
+    text-transform: none;
+}
+.disclosure-badge-warn {
+    color: #B45309;
+    background: #FFFBEB;
+    border-color: #FCD34D;
+}
+.swiss-disclosure-body {
+    padding-top: 8px;
+}
+.vendor-checkbox-grid .shiny-options-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2px 6px;
+}
+.vendor-checkbox-grid .checkbox {
+    margin: 0;
+}
+.vendor-checkbox-grid label {
+    font-size: 11.5px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Main Workspace Container Query Context */
+.editorial-main {
+    container-type: inline-size;
+    container-name: workspace;
+    min-width: 0;
+}
+
+/* Numbered Editorial Section Headers & Micro-Cues */
+.card-header-left {
+    display: inline-flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 7px;
+    min-width: 0;
+}
+.card-header-right {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.section-step-num {
+    font-size: 10px;
+    font-weight: 700;
+    color: #52525B;
+    border: 1px solid #E4E4E7;
+    background: #FAFAFA;
+    border-radius: 2px;
+    padding: 0px 4px;
+    line-height: 1.45;
+}
+.shape-micro-key {
+    font-size: 10.5px;
+    color: #71717A;
+    margin: -2px 0 4px 0;
+    letter-spacing: 0.01em;
+}
+.btn-reset-zoom,
+.btn-clear-selection {
+    background-color: #FFFFFF !important;
+    color: #09090B !important;
+    border: 1px solid #09090B !important;
+    border-radius: 3px !important;
+    font-size: 10.5px !important;
+    font-weight: 600 !important;
+    padding: 1px 7px !important;
+    line-height: 1.5;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn-reset-zoom:hover,
+.btn-clear-selection:hover {
+    background-color: #F4F4F5 !important;
+}
+.btn-clear-selection {
+    border-color: #B91C1C !important;
+    color: #B91C1C !important;
+    background-color: #FEF2F2 !important;
+}
+.btn-clear-selection:hover {
+    background-color: #FEE2E2 !important;
+}
+.btn-reset-zoom[hidden] {
+    display: none !important;
+}
+
+/* Container-Aware Patch Queue + Inspector Split */
+.queue-controls-inline {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 10px;
+}
+.queue-controls-inline .shiny-input-container {
+    margin-bottom: 0 !important;
+}
+.queue-controls-inline .shiny-options-group {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 10px;
+    align-items: center;
+}
+.queue-controls-inline .radio-inline,
+.queue-controls-inline .form-check-inline {
+    margin-right: 0 !important;
+    white-space: nowrap;
+}
+.queue-split-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+    align-items: start;
+}
+@container workspace (min-width: 1040px) {
+    .queue-split-grid {
+        grid-template-columns: minmax(0, 1.85fr) minmax(320px, 1fr);
+        gap: 16px;
+    }
+}
+@container workspace (max-width: 1039px) {
+    .cve-meta-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .queue-controls-inline {
+        flex-wrap: wrap;
+    }
+}
+.queue-grid-pane,
+.queue-inspector-pane {
+    min-width: 0;
+}
+
+/* Clean Monochrome Plotly Modebar (suppress marketing/cloud buttons) */
+.js-plotly-plot .plotly .modebar-btn[data-title*="Share"],
+.js-plotly-plot .plotly .modebar-btn[data-title*="Chart Studio"],
+.js-plotly-plot .plotly .modebar-btn[data-title*="Edit chart"],
+.js-plotly-plot .plotly .plotly-logomark,
+.js-plotly-plot .plotly a.modebar-btn--logo {
+    display: none !important;
+}
+.js-plotly-plot .plotly .modebar {
+    background: transparent !important;
+    opacity: 0;
+    transition: opacity 0.15s ease-out;
+}
+.js-plotly-plot:hover .plotly .modebar {
+    opacity: 1;
+}
+
 /* Minimalist Footer */
 .editorial-footer {
     border-top: 1px solid #E4E4E7;
@@ -617,11 +836,205 @@ shiny-data-frame tbody tr.selected {
 
 SOC_DARK_CSS = SWISS_LIGHT_CSS
 
+CYBERLENS_INTERACTION_JS = """
+(function() {
+    const DEFAULT_X = [0.0, 10.3];
+    const DEFAULT_Y_LINEAR = [-0.04, 1.06];
+    const DEFAULT_Y_LOG = [-4.05, 0.08];
+
+    function getBubbleGd() {
+        const root = document.getElementById('plot_bubble');
+        return root ? root.querySelector('.js-plotly-plot') : null;
+    }
+
+    function isEmptyCartesian(gd) {
+        const fl = gd && gd._fullLayout;
+        if (!fl || !fl.xaxis || !fl.yaxis) return true;
+        return fl.xaxis.visible === false || fl.yaxis.visible === false;
+    }
+
+    function isBubbleZoomed(gd) {
+        if (!gd || isEmptyCartesian(gd)) return false;
+        const fl = gd._fullLayout;
+        const xr = fl.xaxis.range;
+        const yr = fl.yaxis.range;
+        if (!xr || !yr) return false;
+        const isLog = fl.yaxis.type === 'log';
+        const defY = isLog ? DEFAULT_Y_LOG : DEFAULT_Y_LINEAR;
+        const epsX = 0.08;
+        const epsY = isLog ? 0.04 : 0.015;
+        return (
+            Math.abs(Number(xr[0]) - DEFAULT_X[0]) > epsX ||
+            Math.abs(Number(xr[1]) - DEFAULT_X[1]) > epsX ||
+            Math.abs(Number(yr[0]) - defY[0]) > epsY ||
+            Math.abs(Number(yr[1]) - defY[1]) > epsY
+        );
+    }
+
+    function syncResetButton(gd) {
+        const btn = document.getElementById('btn_reset_bubble_zoom');
+        if (!btn) return;
+        const zoomed = isBubbleZoomed(gd || getBubbleGd());
+        btn.hidden = !zoomed;
+        btn.setAttribute('aria-hidden', String(!zoomed));
+    }
+
+    function resetBubbleZoom() {
+        const btn = document.getElementById('btn_reset_bubble_zoom');
+        if (btn) {
+            btn.hidden = true;
+            btn.setAttribute('aria-hidden', 'true');
+        }
+        if (window.Shiny && typeof window.Shiny.setInputValue === 'function') {
+            window.Shiny.setInputValue('bubble_zoom_reset_req', Date.now(), { priority: 'event' });
+        }
+        setTimeout(function() { syncResetButton(); }, 250);
+    }
+
+    function clearBubbleSelectionVisuals(gd) {
+        const target = gd || getBubbleGd();
+        if (!target) return;
+        target.querySelectorAll('.select-outline, .select-outline-1, .select-outline-2').forEach(function(el) {
+            el.remove();
+        });
+        if (target.layout && Array.isArray(target.layout.selections)) {
+            target.layout.selections = [];
+        }
+    }
+
+    function clearBubbleSelection() {
+        const gd = getBubbleGd();
+        clearBubbleSelectionVisuals(gd);
+        if (window.Shiny && typeof window.Shiny.setInputValue === 'function') {
+            window.Shiny.setInputValue('bubble_clear_selection_req', Date.now(), { priority: 'event' });
+        }
+    }
+
+    function bindBubblePlot(gd) {
+        if (!gd || gd._clZoomBound) return;
+        gd._clZoomBound = true;
+        if (typeof gd.on === 'function') {
+            gd.on('plotly_relayout', function() { syncResetButton(gd); });
+            gd.on('plotly_afterplot', function() {
+                syncResetButton(gd);
+                if (!document.getElementById('btn_clear_bubble_selection')) {
+                    clearBubbleSelectionVisuals(gd);
+                }
+            });
+            gd.on('plotly_deselect', function() {
+                clearBubbleSelection();
+            });
+            gd.on('plotly_doubleclick', function() {
+                if (document.getElementById('btn_clear_bubble_selection')) {
+                    clearBubbleSelection();
+                }
+                setTimeout(function() { syncResetButton(gd); }, 40);
+            });
+        }
+        syncResetButton(gd);
+    }
+
+    // Strict plot-area-scoped wheel zoom on #plot_bubble:
+    // Outside the inner plotting rectangle (margins, legend, axes, or empty state),
+    // stop propagation before Plotly's scrollZoom handler runs so the page scrolls naturally.
+    document.addEventListener('wheel', function(e) {
+        const bubbleRoot = e.target && e.target.closest ? e.target.closest('#plot_bubble') : null;
+        if (!bubbleRoot) return;
+        const gd = bubbleRoot.querySelector('.js-plotly-plot');
+        if (!gd || !gd._fullLayout || !gd._fullLayout._size || isEmptyCartesian(gd)) {
+            e.stopPropagation();
+            return;
+        }
+        const rect = gd.getBoundingClientRect();
+        const sz = gd._fullLayout._size;
+        const insidePlot = (
+            e.clientX >= rect.left + sz.l &&
+            e.clientX <= rect.left + sz.l + sz.w &&
+            e.clientY >= rect.top + sz.t &&
+            e.clientY <= rect.top + sz.t + sz.h
+        );
+        if (!insidePlot) {
+            e.stopPropagation();
+        }
+    }, { capture: true });
+
+    // Attach listeners whenever Plotly FigureWidget finishes initial render
+    document.addEventListener('plotlywidget-after-render', function(ev) {
+        const el = ev && ev.detail && ev.detail.element;
+        if (el && el.closest && el.closest('#plot_bubble')) {
+            bindBubblePlot(el);
+        }
+    });
+
+    // Reset Zoom, Clear Selection, Reset All Filters & Escape key synchronization
+    document.addEventListener('click', function(e) {
+        if (!e.target || !e.target.closest) return;
+        if (e.target.closest('#btn_clear_bubble_selection')) {
+            e.preventDefault();
+            clearBubbleSelection();
+            return;
+        }
+        if (e.target.closest('#btn_reset_bubble_zoom')) {
+            e.preventDefault();
+            resetBubbleZoom();
+            return;
+        }
+        if (e.target.closest('[id$="btn_reset_cross_filters"]')) {
+            clearBubbleSelectionVisuals();
+            setTimeout(function() {
+                clearBubbleSelectionVisuals();
+                syncResetButton();
+            }, 220);
+        }
+    });
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Escape') return;
+        const gd = getBubbleGd();
+        const hasVisualOutline = Boolean(gd && gd.querySelector('.select-outline'));
+        if (document.getElementById('btn_clear_bubble_selection') || hasVisualOutline) {
+            clearBubbleSelection();
+        }
+    });
+
+    document.addEventListener('change', function(e) {
+        if (e.target && e.target.closest && e.target.closest('[id$="y_scale"]')) {
+            setTimeout(function() { syncResetButton(); }, 180);
+        }
+    });
+
+    // Keep all responsive FigureWidgets synced on sidebar collapse/expand & container resize
+    function initResizeSync() {
+        const main = document.querySelector('.editorial-main');
+        if (!main || typeof ResizeObserver === 'undefined') return;
+        let lastWidth = Math.round(main.getBoundingClientRect().width);
+        let rafId = null;
+        const ro = new ResizeObserver(function(entries) {
+            const w = Math.round(entries[0].contentRect.width);
+            if (w <= 0 || Math.abs(w - lastWidth) < 2) return;
+            lastWidth = w;
+            if (rafId) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(function() {
+                window.dispatchEvent(new Event('resize'));
+            });
+        });
+        ro.observe(main);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initResizeSync);
+    } else {
+        initResizeSync();
+    }
+})();
+"""
+
 
 def get_soc_styles() -> ui.Tag:
     return ui.tags.head(
         ui.tags.script("document.documentElement.setAttribute('data-bs-theme', 'light');"),
         ui.tags.style(SWISS_LIGHT_CSS),
+        ui.tags.script(CYBERLENS_INTERACTION_JS),
     )
 
 

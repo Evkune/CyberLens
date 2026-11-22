@@ -13,31 +13,38 @@ from cyberlens.ui.mod_kpi_header import CrossFilterBus
 from cyberlens.ui.styles import get_sla_badge_style
 
 QUEUE_SCOPE_CHOICES = {
-    "urgent_24_72h": "Immediate 24h / 72h Surge (P0–P1)",
-    "actionable_p0_p2": "Actionable SLA Queue (P0–P2)",
-    "all_scoped": "All Scoped CVEs (P0–P4)",
+    "urgent_24_72h": "P0–P1 (24–72h)",
+    "actionable_p0_p2": "P0–P2 (Actionable)",
+    "all_scoped": "All (P0–P4)",
+}
+
+COMPACT_SLA_LABELS = {
+    SLA_TIER_ORDER[0]: "P0 · <24h",
+    SLA_TIER_ORDER[1]: "P1 · <72h",
+    SLA_TIER_ORDER[2]: "P2 · <14d",
+    SLA_TIER_ORDER[3]: "P3 · Defer",
+    SLA_TIER_ORDER[4]: "P4 · Backlog",
 }
 
 
 def format_action_queue_table(ranked_df: pd.DataFrame) -> pd.DataFrame:
     """Formats a ranked RBVM dataframe into a clean, NaN-free operational table for DataGrid display."""
+    ordered_cols = [
+        "SLA Tier",
+        "CVE ID",
+        "Vendor",
+        "CVSS",
+        "EPSS",
+        "Δ30d",
+        "Threat Signal",
+        "Product",
+        "Blind-Spot",
+        "Vector",
+        "Layer",
+        "KEV Lag",
+    ]
     if len(ranked_df) == 0:
-        return pd.DataFrame(
-            columns=[
-                "SLA Tier",
-                "CVE ID",
-                "Vendor",
-                "Product",
-                "CVSS",
-                "EPSS",
-                "Δ30d",
-                "Threat Signal",
-                "Blind-Spot",
-                "Vector",
-                "Layer",
-                "KEV Lag",
-            ]
-        )
+        return pd.DataFrame(columns=ordered_cols)
 
     is_kev = ranked_df["is_kev"].to_numpy(dtype=bool, na_value=False)
     is_ransom = (
@@ -53,7 +60,7 @@ def format_action_queue_table(ranked_df: pd.DataFrame) -> pd.DataFrame:
 
     signal = np.select(
         [is_kev & is_ransom, is_kev, is_surge],
-        ["KEV · RANSOMWARE", "CISA KEV", "EPSS Surge"],
+        ["KEV · Ransomware", "CISA KEV", "EPSS Surge"],
         default="Standard",
     )
 
@@ -73,17 +80,23 @@ def format_action_queue_table(ranked_df: pd.DataFrame) -> pd.DataFrame:
         if "days_to_exploit_display" in ranked_df.columns
         else np.full(len(ranked_df), "N/A", dtype=object)
     )
+    compact_sla = (
+        ranked_df["sla_tier"]
+        .astype(str)
+        .map(lambda s: COMPACT_SLA_LABELS.get(s, s))
+        .to_numpy()
+    )
 
     return pd.DataFrame(
         {
-            "SLA Tier": ranked_df["sla_tier"].astype(str).to_numpy(),
+            "SLA Tier": compact_sla,
             "CVE ID": ranked_df["cve_id"].astype(str).to_numpy(),
             "Vendor": ranked_df["vendor"].astype(str).to_numpy(),
-            "Product": ranked_df["product"].astype(str).to_numpy(),
             "CVSS": pd.to_numeric(ranked_df["cvss_base"], errors="coerce").fillna(0.0).round(1).to_numpy(),
             "EPSS": np.char.mod("%.1f%%", epss_pct),
             "Δ30d": np.char.mod("%+.1f%%", delta_pct),
             "Threat Signal": signal,
+            "Product": ranked_df["product"].astype(str).to_numpy(),
             "Blind-Spot": np.char.mod("%.2f", blindspot),
             "Vector": ranked_df["attack_vector"].astype(str).to_numpy(),
             "Layer": ranked_df["layer"].astype(str).to_numpy(),
@@ -97,14 +110,16 @@ def triage_queue_ui() -> ui.TagChild:
     return ui.div(
         ui.div(
             ui.div(
+                ui.span("04", class_="section-step-num mono-num"),
                 ui.span(
                     "Operational Patch Queue & CVE Inspector",
                     class_="card-header-title",
                 ),
                 ui.span(
-                    " — Select any row to inspect details and pin on the scatter plot",
+                    "Click row to inspect & pin",
                     class_="card-header-hint",
                 ),
+                class_="card-header-left",
             ),
             ui.div(
                 ui.input_radio_buttons(
@@ -116,23 +131,24 @@ def triage_queue_ui() -> ui.TagChild:
                 ),
                 ui.download_button(
                     "download_action_queue_csv",
-                    "Export Action Queue (CSV)",
+                    "Export CSV",
                     class_="btn-swiss-dark",
-                    style="margin-left: 10px; white-space: nowrap; flex-shrink: 0;",
+                    style="white-space: nowrap; flex-shrink: 0;",
                 ),
-                style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px;",
+                class_="queue-controls-inline",
             ),
             class_="card-header-bar",
         ),
-        ui.row(
+        ui.div(
             ui.div(
                 ui.output_data_frame("triage_grid"),
-                class_="col-12 col-xl-8",
+                class_="queue-grid-pane",
             ),
             ui.div(
                 ui.output_ui("cve_inspector_drawer"),
-                class_="col-12 col-xl-4",
+                class_="queue-inspector-pane",
             ),
+            class_="queue-split-grid",
         ),
         class_="soc-section soc-section-bordered",
     )
@@ -154,13 +170,9 @@ def triage_queue_server(
         work = df if "sla_tier" in df.columns else enrich_prioritization(df)
         mode = input.queue_filter_mode() or "actionable_p0_p2"
         if mode == "urgent_24_72h":
-            sub = work.loc[work["sla_tier"].isin(SLA_TIER_ORDER[:2])]
-            if len(sub) > 0:
-                work = sub
+            work = work.loc[work["sla_tier"].isin(SLA_TIER_ORDER[:2])]
         elif mode == "actionable_p0_p2":
-            sub = work.loc[work["is_actionable"].astype(bool)]
-            if len(sub) > 0:
-                work = sub
+            work = work.loc[work["is_actionable"].astype(bool)]
         return rank_action_queue(work)
 
     @output
@@ -207,12 +219,21 @@ def triage_queue_server(
     def cve_inspector_drawer() -> ui.Tag:
         df_full = focused_df_calc()
         ranked = active_queue_df()
-        if len(df_full) == 0 or len(ranked) == 0:
+        if len(df_full) == 0:
             return ui.div(
-                ui.h5("CVE Inspector", style="color: #09090B; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;"),
+                ui.h5("CVE Inspector", style="color: #09090B; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;"),
                 ui.p(
                     "No vulnerabilities in the current filter scope.",
-                    style="color: #52525B; font-size: 12px;",
+                    style="color: #52525B; font-size: 12px; margin-bottom: 0;",
+                ),
+                class_="cve-inspector-card",
+            )
+        if len(ranked) == 0:
+            return ui.div(
+                ui.h5("CVE Inspector", style="color: #09090B; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;"),
+                ui.p(
+                    "No vulnerabilities match the selected queue tier in this slice. Switch to All (P0–P4) or adjust triage cutoffs.",
+                    style="color: #52525B; font-size: 12px; margin-bottom: 0;",
                 ),
                 class_="cve-inspector-card",
             )
@@ -302,16 +323,22 @@ def triage_queue_server(
                     ui.span(
                         cve_id,
                         class_="mono-num",
-                        style="font-size: 15px; font-weight: 700; color: #09090B; margin-right: 8px;",
+                        style="font-size: 15px; font-weight: 700; color: #09090B; margin-right: 8px; white-space: nowrap;",
                     ),
-                    ui.span(sla_tier, style=get_sla_badge_style(sla_tier)),
+                    ui.span(sla_tier, style=get_sla_badge_style(sla_tier) + " white-space: nowrap;"),
+                    style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px;",
                 ),
                 status_pill,
-                style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px;",
+                style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;",
             ),
             ui.div(
-                f"{vendor} · {product} (Disclosed: {disclosure_date})",
-                style="font-size: 12px; color: #09090B; font-weight: 600; margin-top: 6px;",
+                ui.span(f"{vendor} · {product}", style="font-weight: 600; color: #09090B;"),
+                ui.span(
+                    f"Disclosed {disclosure_date}",
+                    class_="mono-num",
+                    style="color: #52525B; font-size: 11px; white-space: nowrap; margin-left: 8px;",
+                ),
+                style="font-size: 12px; margin-top: 6px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px;",
             ),
             ui.div(
                 quadrant,
